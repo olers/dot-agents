@@ -1476,9 +1476,13 @@ describe('DetailView', () => {
     expect(html).toContain('已截断')
   })
 
-  it('当前查看的文件是选中态', () => {
+  // WHY: 两个文件按钮长得一样，不标出「你正在看哪个」，用户点了几下就不知道自己在哪儿了。
+  it('当前查看的文件是选中态，别的不是', () => {
     const html = view({ file: 'SKILL.md', peek: ok('x') })
-    expect(html).toMatch(/aria-pressed="true"[^>]*>SKILL\.md|SKILL\.md/)
+    expect(html).toContain('<button class="dfile" aria-pressed="true" type="button">SKILL.md</button>')
+    expect(html).toContain(
+      '<button class="dfile" aria-pressed="false" type="button">reference.md</button>',
+    )
   })
 })
 ```
