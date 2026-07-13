@@ -1,4 +1,4 @@
-import type { Dim, Foreign, Plan, State } from '../core/types.js'
+import type { Dim, Entry, Foreign, Plan, State } from '../core/types.js'
 import { DIMS, TOOL_DIRS, AGENTS_DIR } from '../core/constants.js'
 
 /**
@@ -25,6 +25,33 @@ export type Tone =
 /** 接线柱在行的哪一侧。它决定线从哪儿出发 —— 不是装饰。 */
 export type Pt = '' | 'l' | 'r' | 'lr'
 
+/**
+ * 一行背后的真实条目。**有 ref = 这一行可以点开看详情。**
+ *
+ * 「执行后·唯一源」那一列是预测：文件还没搬过去，.agents/<dim>/<name> 在磁盘上并不存在。
+ * 所以那一列的 ref 指向的是**内容将会来自的那个源路径**，不是目标路径。
+ */
+export interface EntryRef {
+  key: string // `${dim}/${name}`
+  dim: Dim
+  name: string
+  /** 内容当前所在的绝对路径 */
+  path: string
+  /** 目录条目（skills）还是单文件条目（commands / agents / hooks）。侧栏靠它拼子路径。 */
+  isDir: boolean
+  files: string[]
+  desc?: string
+  /** 这份内容现在躺在哪个目录里（'.claude' / '.agents' / …）。 */
+  from: string
+}
+
+/**
+ * 选中态的唯一标识。
+ * 不能用 key —— .claude/skills/foo 和 .codebuddy/skills/foo 的 key 是同一个，
+ * 点开一份、两份一起高亮，那是在图上撒谎。
+ */
+export const refId = (r: EntryRef) => `${r.from}|${r.key}`
+
 export interface Row {
   kind: 'dir' | 'item' | 'link' | 'note'
   text: string
@@ -35,6 +62,8 @@ export interface Row {
   /** 连线锚点。没有锚点 = 这一行不连线。 */
   anchor?: string
   pt: Pt
+  /** 有 ref = 可以点开详情。不管理的东西（only / residue / 软链行）一律没有。 */
+  ref?: EntryRef
 }
 
 /** 列 1 的一个维度：条目列表和一行软链，收敛时在同一个位置上互换。 */
@@ -123,18 +152,44 @@ export function buildGraph(state: State, plan: Plan): Graph {
   const root = state.repoRoot
   const rel = (p: string) => (p.startsWith(root + '/') ? p.slice(root.length + 1) : p)
 
+  // path -> 条目。唯一源那一列的行要指回「内容将会来自哪儿」——
+  // plan.ops 里 move 的 from 就是源路径，一查这张表就拿到它的 files / desc。
+  // 不需要反推，也不该反推。
+  const byPath = new Map<string, { e: Entry; tool: string }>()
+  for (const dim of DIMS) {
+    for (const e of state.agentsDir.entries[dim]) byPath.set(e.path, { e, tool: AGENTS_DIR })
+  }
+  for (const [tool, t] of Object.entries(state.tools)) {
+    for (const dim of DIMS) {
+      const st = t.dims[dim]
+      if (st?.kind === 'real') for (const e of st.entries) byPath.set(e.path, { e, tool })
+    }
+  }
+
+  const refOf = (tool: string, dim: Dim, e: Entry): EntryRef => ({
+    key: `${dim}/${e.name}`,
+    dim,
+    name: e.name,
+    path: e.path,
+    isDir: e.isDir,
+    files: e.files,
+    desc: e.desc,
+    from: tool,
+  })
+
   // ── 把 plan.ops 索引成几张表。这是唯一的事实来源。 ──
   const discarded = new Set<string>()
   const newLinks = new Set<string>() // `${tool}/${dim}`
-  const landed = new Map<Dim, Set<string>>() // 搬进唯一源的条目名
+  const landed = new Map<Dim, Map<string, EntryRef | undefined>>() // 搬进唯一源的条目 -> 它的来源
 
   for (const op of plan.ops) {
     if (op.t === 'move') {
       const [head, dim, name] = rel(op.to).split('/')
       if (head === AGENTS_DIR && dim && name) {
         const d = dim as Dim
-        if (!landed.has(d)) landed.set(d, new Set())
-        landed.get(d)!.add(name)
+        if (!landed.has(d)) landed.set(d, new Map())
+        const src = byPath.get(op.from)
+        landed.get(d)!.set(name, src ? refOf(src.tool, d, src.e) : undefined)
       }
     } else if (op.t === 'discard') {
       discarded.add(op.path)
@@ -191,26 +246,28 @@ export function buildGraph(state: State, plan: Plan): Graph {
    * .agents 自己也要走这套 —— 它是冲突里的一个候选方（而且优先级最高），
    * 判它「赢/输/被去重」的规则和工具目录完全一样。两套规则会各自漂移。
    */
-  const entryRow = (tool: string, dim: Dim, e: { name: string; path: string }): Row => {
+  const entryRow = (tool: string, dim: Dim, e: Entry): Row => {
     const key = `${dim}/${e.name}`
+    const ref = refOf(tool, dim, e)
 
     if (conflicts.has(key)) {
       if (unresolved.has(key)) {
         // 未裁决：连到唯一源那一行赭石占位行上。
         // 两条线撞进同一行 —— 冲突长这样，不用一句话解释。
-        return item(e.name, 'dup', anchorItem(tool, key))
+        return item(e.name, 'dup', anchorItem(tool, key), ref)
       }
       const winner = plan.resolved[key]
-      if (winner === tool) return item(e.name, 'won', anchorItem(tool, key))
-      // 落败：它不会进唯一源，所以它没有线
-      return item(e.name, 'loser')
+      if (winner === tool) return item(e.name, 'won', anchorItem(tool, key), ref)
+      // 落败：它不会进唯一源，所以它没有线。但它照样点得开 ——
+      // 「我要删掉的这份到底是什么」恰恰是用户最想知道的。
+      return item(e.name, 'loser', undefined, ref)
     }
 
-    // 内容完全相同的重复副本 —— 静默去重，删掉，不连线
-    if (discarded.has(e.path)) return item(e.name, 'dropped')
+    // 内容完全相同的重复副本 —— 静默去重，删掉，不连线。同样点得开。
+    if (discarded.has(e.path)) return item(e.name, 'dropped', undefined, ref)
 
     // move 进来的，和「本来就在唯一源里、什么都不用动」的，都走这条
-    return item(e.name, 'plain', anchorItem(tool, key))
+    return item(e.name, 'plain', anchorItem(tool, key), ref)
   }
 
   /* ── 列 1：现在 ── */
@@ -338,10 +395,14 @@ export function buildGraph(state: State, plan: Plan): Graph {
 
     // 本来就在里面、这次没被换掉的
     for (const e of state.agentsDir.entries[dim]) {
-      if (!discarded.has(e.path)) rows.set(e.name, srcItem(dim, e.name, 'plain'))
+      if (!discarded.has(e.path)) {
+        rows.set(e.name, srcItem(dim, e.name, 'plain', refOf(AGENTS_DIR, dim, e)))
+      }
     }
-    // 这次搬进来的
-    for (const name of landed.get(dim) ?? []) rows.set(name, srcItem(dim, name, 'plain'))
+    // 这次搬进来的：ref 指向它的**源路径** —— .agents/<dim>/<name> 还不存在
+    for (const [name, ref] of landed.get(dim) ?? []) {
+      rows.set(name, srcItem(dim, name, 'plain', ref))
+    }
 
     // 未裁决的冲突：它不会进来。放一行赭石占位行，明说它原地不动 ——
     // 不放，用户会以为它悄悄进了唯一源。
@@ -462,16 +523,17 @@ export function buildGraph(state: State, plan: Plan): Graph {
   return { now, src: { dims: srcDims, only: srcOnly }, dist, strangers, bigDims, linkCount }
 }
 
-function item(name: string, tone: Tone, anchor?: string): Row {
-  return { kind: 'item', text: name, tone, anchor, pt: 'r' }
+function item(name: string, tone: Tone, anchor?: string, ref?: EntryRef): Row {
+  return { kind: 'item', text: name, tone, anchor, pt: 'r', ref }
 }
 
-function srcItem(dim: Dim, name: string, tone: Tone): Row {
+function srcItem(dim: Dim, name: string, tone: Tone, ref?: EntryRef): Row {
   return {
     kind: 'item',
     text: name,
     tone,
     pt: 'l',
     anchor: anchorSrcItem(`${dim}/${name}`),
+    ref,
   }
 }

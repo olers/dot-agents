@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest'
+import { join } from 'node:path'
 import { scan } from '../../src/core/scan.js'
 import { buildPlan } from '../../src/core/plan.js'
-import { buildGraph, anchorItem, anchorSrcItem, FOLD_CAP } from '../../src/web/graph.js'
+import { buildGraph, anchorItem, anchorSrcItem, refId, FOLD_CAP } from '../../src/web/graph.js'
 import type { Graph, Row } from '../../src/web/graph.js'
 import { mkRepo, cleanupRepo } from '../helpers/mkrepo.js'
 
@@ -294,5 +295,101 @@ describe('buildGraph —— 只翻译 plan，不自己推演', () => {
     // 前端一旦自己算一遍「应该会变成什么样」，它的预测就会和真正执行的东西对不上。
     // 这个仓库里没有「本来就在 .agents 里」的条目，所以两边应该完全相等。
     expect(shown).toEqual(landed)
+  })
+})
+
+describe('Row.ref —— 行连回真实条目', () => {
+  it('「现在」列的条目行带 ref，指向它在磁盘上的真实路径', async () => {
+    root = await mkRepo({ '.claude/skills/foo/SKILL.md': '---\ndescription: 我是 foo\n---\n' })
+    const state = await scan(root)
+    const g = buildGraph(state, buildPlan(state, {}))
+
+    const row = g.now.find((b) => b.tool === '.claude')!.dims[0].entries[0]
+    expect(row.ref).toBeDefined()
+    expect(row.ref!.path).toBe(join(root, '.claude/skills/foo'))
+    expect(row.ref!.from).toBe('.claude')
+    expect(row.ref!.isDir).toBe(true)
+    expect(row.ref!.desc).toBe('我是 foo')
+    expect(row.ref!.files).toEqual(['SKILL.md'])
+  })
+
+  // WHY: 唯一源那一列是**预测** —— 文件还没搬过去，.agents/skills/foo 在磁盘上根本不存在。
+  // ref 指向目标路径的话，点开侧栏必然 404。它得指向「内容将会来自哪儿」。
+  it('唯一源列的条目：ref 指向源路径，不是 .agents 下那个还不存在的目标', async () => {
+    root = await mkRepo({ '.claude/skills/foo/SKILL.md': 'x' })
+    const state = await scan(root)
+    const g = buildGraph(state, buildPlan(state, {}))
+
+    const row = g.src.dims.find((d) => d.dim === 'skills')!.entries[0]
+    expect(row.ref!.path).toBe(join(root, '.claude/skills/foo'))
+    expect(row.ref!.path).not.toContain('.agents')
+    expect(row.ref!.from).toBe('.claude')
+  })
+
+  // WHY: 用户最想点开的恰恰是「我要删掉的这份」。不给它 ref，等于让用户闭着眼睛删。
+  it('冲突里落败的、和被静默去重的条目，一样可以点开', async () => {
+    root = await mkRepo({
+      '.claude/skills/foo/SKILL.md': 'A',
+      '.codebuddy/skills/foo/SKILL.md': 'B',
+      '.cursor/skills/bar/SKILL.md': 'same',
+      '.trae/skills/bar/SKILL.md': 'same',
+    })
+    const state = await scan(root)
+    const g = buildGraph(state, buildPlan(state, { 'skills/foo': '.claude' }))
+
+    const loser = g.now
+      .find((b) => b.tool === '.codebuddy')!
+      .dims[0].entries.find((r) => r.text === 'foo')!
+    expect(loser.tone).toBe('loser')
+    expect(loser.ref!.path).toBe(join(root, '.codebuddy/skills/foo'))
+
+    const dropped = g.now
+      .find((b) => b.tool === '.trae')!
+      .dims[0].entries.find((r) => r.text === 'bar')!
+    expect(dropped.tone).toBe('dropped')
+    expect(dropped.ref).toBeDefined()
+  })
+
+  // WHY: 未裁决的冲突在唯一源列里只是一个赭石占位行，它没有唯一的内容来源 ——
+  // 那正是「未裁决」的含义。给它 ref = 替用户选了一份，而这个工具的第一原则就是绝不替他选。
+  it('未裁决冲突的占位行没有 ref，点不开', async () => {
+    root = await mkRepo({
+      '.claude/skills/foo/SKILL.md': 'A',
+      '.codebuddy/skills/foo/SKILL.md': 'B',
+    })
+    const state = await scan(root)
+    const g = buildGraph(state, buildPlan(state, {}))
+
+    const row = g.src.dims.find((d) => d.dim === 'skills')!.entries.find((r) => r.text === 'foo')!
+    expect(row.tone).toBe('dup')
+    expect(row.ref).toBeUndefined()
+  })
+
+  it('不管理的东西（only / residue / 软链行）都没有 ref', async () => {
+    root = await mkRepo({
+      '.claude/skills/foo/SKILL.md': 'x',
+      '.claude/settings.json': '{}',
+    })
+    const state = await scan(root)
+    const g = buildGraph(state, buildPlan(state, {}))
+
+    const box = g.now.find((b) => b.tool === '.claude')!
+    expect(box.only.every((r) => r.ref === undefined)).toBe(true)
+  })
+
+  // WHY: 同一个 name 在 .claude 和 .codebuddy 里都有，key 都是 skills/foo。
+  // 拿 key 当选中态的标识，点开左边那份，右边那份也会跟着高亮 —— 那是在撒谎。
+  it('refId 用 from + key，同名条目在不同盒子里不会互相冒充', async () => {
+    root = await mkRepo({
+      '.claude/skills/foo/SKILL.md': 'A',
+      '.codebuddy/skills/foo/SKILL.md': 'B',
+    })
+    const state = await scan(root)
+    const g = buildGraph(state, buildPlan(state, {}))
+
+    const a = g.now.find((b) => b.tool === '.claude')!.dims[0].entries[0].ref!
+    const b = g.now.find((b) => b.tool === '.codebuddy')!.dims[0].entries[0].ref!
+    expect(a.key).toBe(b.key)
+    expect(refId(a)).not.toBe(refId(b))
   })
 })
