@@ -373,11 +373,13 @@ code {
 .row.clickable:hover {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
+/* 选中态不是「重复」或「软链」，它是「你正在看这个」——
+   不借用赭石/墨绿这两个已经有语义的颜色，用中性色，避免和 dup 行的赭石字撞色。 */
 .row.active {
-  background: color-mix(in srgb, var(--moss) 13%, transparent);
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 .row.clickable:focus-visible {
-  outline: 1px solid var(--moss);
+  outline: 1px solid var(--ink-faint);
   outline-offset: 1px;
 }
 
@@ -538,14 +540,28 @@ code {
 
 /* ── 折叠：条目列表 ⇄ 一行软链，在同一个位置上互换 ── */
 .entries {
-  max-height: 400px;
   opacity: 1;
-  overflow: hidden;
-  transition: max-height 0.55s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.28s ease;
 }
+
+/* 收敛：整组条目折进去。
+   用 @keyframes 而不是 transition —— transition 的起点取决于上一帧的计算值，
+   而计划阶段这里根本没有 max-height，none -> 0 不可插值，动画会直接跳。
+   keyframes 自带 from，起点不依赖上一帧。
+   overflow:hidden 也只在这儿加：它一旦常驻，就会把 .row 上那个绝对定位的
+   描述提示整个裁掉 —— 而提示正是列 1 存在的意义。 */
 .graph:not(.plan) .col-now .dim.willlink .entries {
-  max-height: 0;
-  opacity: 0;
+  overflow: hidden;
+  animation: fold 0.55s cubic-bezier(0.5, 0, 0.2, 1) forwards;
+}
+@keyframes fold {
+  from {
+    max-height: 400px;
+    opacity: 1;
+  }
+  to {
+    max-height: 0;
+    opacity: 0;
+  }
 }
 
 .linkrow {

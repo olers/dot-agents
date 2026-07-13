@@ -55,6 +55,12 @@ describe('parseDesc', () => {
     expect(v).toHaveLength(501)
     expect(v.endsWith('…')).toBe(true)
   })
+
+  // WHY: 开头那行用 trim() 判断 '---'，闭合行如果只用精确匹配，
+  // 两边不一致 —— 尾部带空格的合法闭合行会被误判成"没有闭合"。
+  it('闭合的 --- 尾部带空格，也要认得出来', () => {
+    expect(parseDesc('---\ndescription: 带尾空格的闭合\n---  \n正文')).toBe('带尾空格的闭合')
+  })
 })
 
 describe('readDesc', () => {

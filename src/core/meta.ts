@@ -9,9 +9,6 @@ import { join } from 'node:path'
  */
 const MAX_DESC = 500
 
-/** frontmatter 不可能有 1MB。超过就当它没有，别把一个巨型文件读进内存。 */
-const MAX_HEAD = 1024 * 1024
-
 /**
  * 从一段文本里抓 frontmatter 的 description。
  *
@@ -22,7 +19,8 @@ export function parseDesc(text: string): string | undefined {
   const lines = text.split(/\r?\n/)
   if (lines[0]?.trim() !== '---') return undefined
 
-  const end = lines.indexOf('---', 1)
+  // 闭合行也要 trim —— 开头那行已经 trim 过了，两边不一致会漏认 "---  "（尾部带空格）这种写法
+  const end = lines.findIndex((l, idx) => idx >= 1 && l.trim() === '---')
   if (end < 0) return undefined // 没有闭合，那它就不是 frontmatter
 
   const body = lines.slice(1, end)
@@ -59,8 +57,9 @@ export function parseDesc(text: string): string | undefined {
 export async function readDesc(entryPath: string, isDir: boolean): Promise<string | undefined> {
   const file = isDir ? join(entryPath, 'SKILL.md') : entryPath
   try {
+    // 这里不设内存边界：hashPath 已经把条目里的每个文件整个读过一遍，
+    // 一个巨型 SKILL.md 会先在 hash 那一步撑爆，这里再加一道假的上限只是自我安慰。
     const buf = await readFile(file)
-    if (buf.length > MAX_HEAD) return undefined
     return parseDesc(buf.toString('utf8'))
   } catch {
     return undefined

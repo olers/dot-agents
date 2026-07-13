@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Peek } from '../../core/types.js'
-import type { EntryRef } from '../graph.js'
+import { refId, type EntryRef } from '../graph.js'
 import { getFile } from '../api.js'
 
 /** 打开侧栏先看哪个文件。SKILL.md 是这个条目的门面 —— 先看它，省用户一次点击。 */
@@ -91,16 +91,19 @@ export function DetailView({ entry, file, peek, loading, err, onPick, onClose }:
 }
 
 export function Detail({ entry, onClose }: { entry: EntryRef; onClose: () => void }) {
-  const [file, setFile] = useState<string | undefined>(() => defaultFile(entry.files))
+  // 选中的文件跟着条目走。用 render 期间派生、而不是 useEffect 重置 ——
+  // 后者会让「取数据」那个 effect 先拿着上一个条目的文件名对新条目发一次请求，
+  // 那次请求注定被丢弃，纯属浪费。
+  const [sel, setSel] = useState<{ id: string; file?: string }>(() => ({
+    id: refId(entry),
+    file: defaultFile(entry.files),
+  }))
+  const file = sel.id === refId(entry) ? sel.file : defaultFile(entry.files)
+  const onPick = (f: string) => setSel({ id: refId(entry), file: f })
+
   const [peek, setPeek] = useState<Peek | null>(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-
-  // 换了个条目：回到它自己的默认文件。不重置的话，上一个条目选中的
-  // reference.md 会被带到下一个条目上，而它可能根本没有这个文件。
-  useEffect(() => {
-    setFile(defaultFile(entry.files))
-  }, [entry])
 
   useEffect(() => {
     if (!file) {
@@ -141,7 +144,7 @@ export function Detail({ entry, onClose }: { entry: EntryRef; onClose: () => voi
       peek={peek}
       loading={loading}
       err={err}
-      onPick={setFile}
+      onPick={onPick}
       onClose={onClose}
     />
   )

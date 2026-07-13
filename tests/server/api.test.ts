@@ -120,6 +120,17 @@ describe('server', () => {
     expect(res.status).toBe(403)
   })
 
+  // WHY: path 是拼在 query string 里传的。encodeURIComponent -> URLSearchParams
+  // 这条链路现在是对的，但没有测试锁住它 —— 有人把 getFile 改成手写字符串拼接
+  // （比如 `?path=${want}` 不经过 encodeURIComponent），空格/# 会把 query 截断，
+  // & 会被拆成多个参数，这条测试才会亮红灯。
+  it('GET /api/file 条目名带空格和 # -> 200，内容能读到', async () => {
+    const { root, call } = await boot({ '.claude/commands/my cmd#1.md': 'hash & space 都在' })
+    const p = encodeURIComponent(join(root, '.claude/commands/my cmd#1.md'))
+    const body = await (await call(`/api/file?path=${p}`)).json()
+    expect(body.content).toBe('hash & space 都在')
+  })
+
   it('GET /api/file 读不存在的文件 -> 404', async () => {
     const { root, call } = await boot({ '.claude/skills/foo/SKILL.md': 'x' })
     const p = encodeURIComponent(join(root, '.claude/skills/foo/NOPE.md'))

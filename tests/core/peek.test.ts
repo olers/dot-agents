@@ -130,6 +130,22 @@ describe('peekFile · 内容', () => {
     }
   })
 
+  // WHY: 0 字节文件是 read 返回 bytesRead=0 的边界情况。Buffer.alloc(0) 不留
+  // 任何零填充脏数据可判，binary 判断必须照样给出确定的「不是二进制」。
+  it('0 字节文件：content 为空、非二进制、不截断', async () => {
+    await repo()
+    const p = join(root, '.claude/skills/foo/empty.md')
+    await writeFile(p, '', 'utf8')
+    const r = await peek(p)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.peek.content).toBe('')
+      expect(r.peek.binary).toBe(false)
+      expect(r.peek.truncated).toBe(false)
+      expect(r.peek.size).toBe(0)
+    }
+  })
+
   it('超过 MAX_PEEK 的文件：截断，并明说截断了', async () => {
     await repo()
     const p = join(root, '.claude/skills/foo/big.md')

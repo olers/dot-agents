@@ -365,6 +365,23 @@ describe('Row.ref —— 行连回真实条目', () => {
     expect(row.ref).toBeUndefined()
   })
 
+  // WHY: .agents 自己也是冲突候选之一时，列 3 的第 1 步会先放进一个带 ref 的行，
+  // 只有 plan.skipped 那一步的覆盖能把 ref 抹掉。调换两个循环的顺序，
+  // 列 3 就会把 .agents 那份当成唯一源摆出来 —— 工具替用户选了。
+  // 而「绝不替用户选」是这个工具的第一原则。这条测试就是那个顺序的锁。
+  it('未裁决冲突：连 .agents 自己是候选时，占位行也不能带 ref', async () => {
+    root = await mkRepo({
+      '.agents/skills/foo/SKILL.md': 'A',
+      '.claude/skills/foo/SKILL.md': 'B',
+    })
+    const state = await scan(root)
+    const g = buildGraph(state, buildPlan(state, {}))
+
+    const row = g.src.dims.find((d) => d.dim === 'skills')!.entries.find((r) => r.text === 'foo')!
+    expect(row.tone).toBe('dup')
+    expect(row.ref).toBeUndefined()
+  })
+
   it('不管理的东西（only / residue / 软链行）都没有 ref', async () => {
     root = await mkRepo({
       '.claude/skills/foo/SKILL.md': 'x',
@@ -374,6 +391,9 @@ describe('Row.ref —— 行连回真实条目', () => {
     const g = buildGraph(state, buildPlan(state, {}))
 
     const box = g.now.find((b) => b.tool === '.claude')!
+    // 先确认 only 真的非空 —— 否则 .every() 在空数组上真空为真，这条断言
+    // 什么都没验证，只是看起来在验证。
+    expect(box.only.length).toBeGreaterThan(0)
     expect(box.only.every((r) => r.ref === undefined)).toBe(true)
   })
 

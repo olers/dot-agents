@@ -36,6 +36,17 @@ export function App() {
     setGen((g) => g + 1) // 行数变了 = 所有接线柱都挪位了
   }, [])
 
+  // onClose 用 useCallback 包一下：不然内联箭头每次渲染都是新引用，
+  // 收敛动画期间 gen/phase 一直在变，Detail 里依赖 [onClose] 的 ESC effect
+  // 就会跟着每次都拆装一遍 keydown 监听 —— 行为没错，纯属浪费。
+  const closeDetail = useCallback(() => setDetail(null), [])
+
+  // 切 tab：另一个 tab 的条目不该继续显示在侧栏里，activeId 也高亮不到任何行。
+  const changeTab = useCallback((t: 'repo' | 'global') => {
+    setDetail(null)
+    setTab(t)
+  }, [])
+
   useEffect(() => {
     getState()
       .then(setBundle)
@@ -99,6 +110,10 @@ export function App() {
       return
     }
 
+    // 收敛成功：侧栏里那个路径多半已经不存在了（文件搬走了/软链换了）。
+    // 留着不关，用户点旁边的文件会拿到一次「读取失败：… -> 404」。
+    setDetail(null)
+
     // 折叠先跑完，锚点稳了才让线重画
     await sleep(Math.max(0, COLLAPSE_MS - (Date.now() - t0)))
     setPhase('linking')
@@ -122,7 +137,7 @@ export function App() {
 
   if (tab === 'global')
     return (
-      <Shell path={bundle.repo.repoRoot} tab={tab} setTab={setTab}>
+      <Shell path={bundle.repo.repoRoot} tab={tab} setTab={changeTab}>
         <div className="global">
           <div className="col-h">
             <span className="lab muted-lab">只读</span>
@@ -148,14 +163,14 @@ export function App() {
             <p className="muted">{bundle.globalError}</p>
           )}
         </div>
-        {detail && <Detail entry={detail} onClose={() => setDetail(null)} />}
+        {detail && <Detail entry={detail} onClose={closeDetail} />}
       </Shell>
     )
 
   const busy = phase === 'collapsing' || phase === 'linking'
 
   return (
-    <Shell path={bundle.repo.repoRoot} tab={tab} setTab={setTab}>
+    <Shell path={bundle.repo.repoRoot} tab={tab} setTab={changeTab}>
       <div className={`graph ${phase}`}>
         <Wires
           graph={graph}
@@ -258,7 +273,7 @@ export function App() {
         </>
       )}
 
-      {detail && <Detail entry={detail} onClose={() => setDetail(null)} />}
+      {detail && <Detail entry={detail} onClose={closeDetail} />}
     </Shell>
   )
 }

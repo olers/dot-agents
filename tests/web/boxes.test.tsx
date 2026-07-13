@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { scan } from '../../src/core/scan.js'
 import { buildPlan } from '../../src/core/plan.js'
-import { buildGraph, anchorFold, refId, FOLD_CAP } from '../../src/web/graph.js'
+import { buildGraph, anchorFold, anchorItem, refId, FOLD_CAP } from '../../src/web/graph.js'
 import { NowBoxView, SrcBoxView } from '../../src/web/components/Boxes.js'
 import { mkRepo, cleanupRepo } from '../helpers/mkrepo.js'
 
@@ -145,15 +145,27 @@ describe('可点的行 + 描述预览', () => {
     expect(html).not.toContain('role="button"')
   })
 
-  it('activeId 命中的那一行带 active 类', async () => {
-    const g = await graphOf({ '.claude/skills/foo/SKILL.md': 'x' })
+  // WHY: 如果 active 判定被写成 `!!activeId`（只看有没有传，不比对 refId），
+  // 单条目 fixture 也会让这条断言通过 —— 两个条目、只断言命中的那行才有 active
+  // 类、没命中的那行没有，才能把这种误写挡住。
+  it('activeId 命中的那一行带 active 类，另一行不带', async () => {
+    const g = await graphOf({
+      '.claude/skills/foo/SKILL.md': 'x',
+      '.claude/skills/bar/SKILL.md': 'y',
+    })
     const fold = { big: g.bigDims, open: new Set<never>(), onToggle: () => {} }
     const box = g.now.find((b) => b.tool === '.claude')!
-    const id = refId(box.dims[0].entries[0].ref!)
+    const id = refId(box.dims[0].entries.find((r) => r.text === 'foo')!.ref!)
 
     const html = renderToStaticMarkup(
       <NowBoxView box={box} delay={0} fold={fold} onOpen={() => {}} activeId={id} />,
     )
-    expect(html).toContain('active')
+
+    const classOf = (anchor: string) => {
+      const m = html.match(new RegExp(`class="([^"]*)" data-a="${anchor.replace(/\|/g, '\\|')}"`))
+      return m?.[1] ?? ''
+    }
+    expect(classOf(anchorItem('.claude', 'skills/foo')).split(' ')).toContain('active')
+    expect(classOf(anchorItem('.claude', 'skills/bar')).split(' ')).not.toContain('active')
   })
 })
