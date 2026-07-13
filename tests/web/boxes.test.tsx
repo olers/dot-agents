@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { scan } from '../../src/core/scan.js'
 import { buildPlan } from '../../src/core/plan.js'
-import { buildGraph, anchorFold, FOLD_CAP } from '../../src/web/graph.js'
+import { buildGraph, anchorFold, refId, FOLD_CAP } from '../../src/web/graph.js'
 import { NowBoxView, SrcBoxView } from '../../src/web/components/Boxes.js'
 import { mkRepo, cleanupRepo } from '../helpers/mkrepo.js'
 
@@ -74,5 +74,86 @@ describe('折叠后的盒子', () => {
     expect(html).toContain('>s0<')
     expect(html).not.toContain('个条目')
     expect(html).not.toContain('收起')
+  })
+})
+
+describe('可点的行 + 描述预览', () => {
+  it('带 ref 的条目行：有 role=button 和 tabindex，键盘能停上去', async () => {
+    const g = await graphOf({ '.claude/skills/foo/SKILL.md': '---\ndescription: 我是 foo\n---\n' })
+    const fold = { big: g.bigDims, open: new Set<never>(), onToggle: () => {} }
+    const box = g.now.find((b) => b.tool === '.claude')!
+
+    const html = renderToStaticMarkup(
+      <NowBoxView box={box} delay={0} fold={fold} onOpen={() => {}} />,
+    )
+    expect(html).toContain('role="button"')
+    expect(html).toContain('tabindex="0"')
+    expect(html).toContain('clickable')
+  })
+
+  // WHY: 有描述才浮提示。没有 desc 还渲染一个空方块，hover 上去是一片空白 —— 那比没有更糟。
+  it('有 desc -> 渲染 tooltip；没有 desc -> 一个 tip 节点都不渲染', async () => {
+    const withDesc = await graphOf({
+      '.claude/skills/foo/SKILL.md': '---\ndescription: 我是 foo\n---\n',
+    })
+    const f1 = { big: withDesc.bigDims, open: new Set<never>(), onToggle: () => {} }
+    const h1 = renderToStaticMarkup(
+      <NowBoxView
+        box={withDesc.now.find((b) => b.tool === '.claude')!}
+        delay={0}
+        fold={f1}
+        onOpen={() => {}}
+      />,
+    )
+    expect(h1).toContain('class="tip"')
+    expect(h1).toContain('我是 foo')
+
+    const noDesc = await graphOf({ '.claude/skills/foo/SKILL.md': '没有 frontmatter' })
+    const f2 = { big: noDesc.bigDims, open: new Set<never>(), onToggle: () => {} }
+    const h2 = renderToStaticMarkup(
+      <NowBoxView
+        box={noDesc.now.find((b) => b.tool === '.claude')!}
+        delay={0}
+        fold={f2}
+        onOpen={() => {}}
+      />,
+    )
+    expect(h2).not.toContain('class="tip"')
+  })
+
+  // WHY: only 里是 dot-agents 不管理的东西。让它们看起来可点、点了却什么都没有，
+  // 等于告诉用户「这里有内容」——而我们压根不读它们。
+  it('不管理的行（only）不可点：没有 role=button', async () => {
+    const g = await graphOf({ '.claude/settings.json': '{}' })
+    const fold = { big: g.bigDims, open: new Set<never>(), onToggle: () => {} }
+    const box = g.now.find((b) => b.tool === '.claude')!
+
+    const html = renderToStaticMarkup(
+      <NowBoxView box={box} delay={0} fold={fold} onOpen={() => {}} />,
+    )
+    expect(html).toContain('settings.json')
+    expect(html).not.toContain('role="button"')
+  })
+
+  // WHY: 不传 onOpen（比如某个只读视图不想要侧栏）时，行不该假装可点。
+  it('没传 onOpen -> 行不可点', async () => {
+    const g = await graphOf({ '.claude/skills/foo/SKILL.md': 'x' })
+    const fold = { big: g.bigDims, open: new Set<never>(), onToggle: () => {} }
+    const box = g.now.find((b) => b.tool === '.claude')!
+
+    const html = renderToStaticMarkup(<NowBoxView box={box} delay={0} fold={fold} />)
+    expect(html).not.toContain('role="button"')
+  })
+
+  it('activeId 命中的那一行带 active 类', async () => {
+    const g = await graphOf({ '.claude/skills/foo/SKILL.md': 'x' })
+    const fold = { big: g.bigDims, open: new Set<never>(), onToggle: () => {} }
+    const box = g.now.find((b) => b.tool === '.claude')!
+    const id = refId(box.dims[0].entries[0].ref!)
+
+    const html = renderToStaticMarkup(
+      <NowBoxView box={box} delay={0} fold={fold} onOpen={() => {}} activeId={id} />,
+    )
+    expect(html).toContain('active')
   })
 })

@@ -342,6 +342,7 @@ code {
    文字一律左对齐（目录树就该这么读）。换边的只有接线柱 ——
    它决定线从哪儿出发，文字不该跟着它跑。 */
 .row {
+  position: relative; /* tooltip 的定位上下文 */
   display: flex;
   align-items: center;
   font-family: var(--mono);
@@ -362,6 +363,50 @@ code {
   margin-left: 10px;
   font-size: 10.5px;
   color: var(--ink-faint);
+}
+
+/* ── 可点的行 ── */
+.row.clickable {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.row.clickable:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.row.active {
+  background: color-mix(in srgb, var(--moss) 13%, transparent);
+}
+.row.clickable:focus-visible {
+  outline: 1px solid var(--moss);
+  outline-offset: 1px;
+}
+
+/* 描述预览。
+   绝对定位不是审美选择：进了文档流就会改行高，而线是靠 DOM 锚点实时量出来的 ——
+   行高一变，四列图上所有接线柱都得重量。 */
+.tip {
+  position: absolute;
+  left: 0;
+  top: calc(100% - 3px);
+  z-index: 20;
+  max-width: 320px;
+  white-space: normal;
+  line-height: 1.5;
+  font-family: 'Avenir Next', -apple-system, 'PingFang SC', sans-serif;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 5px;
+  padding: 6px 9px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.09);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.row:hover > .tip,
+.row:focus-visible > .tip {
+  opacity: 1;
 }
 
 /* 接线柱骑在框的边线上。所有线因此从同一条竖线出发 —— 束才是平行的，不是散射。 */

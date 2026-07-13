@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import type { Dim } from '../../core/types.js'
-import { anchorFold, type DistBox, type NowBox, type Row, type SrcBlock } from '../graph.js'
+import {
+  anchorFold,
+  refId,
+  type DistBox,
+  type EntryRef,
+  type NowBox,
+  type Row,
+  type SrcBlock,
+} from '../graph.js'
 
 /** only 列表里超过这么多条就省略。不连线，所以可以每个盒子自己折自己。 */
 const ONLY_CAP = 4
@@ -9,13 +17,47 @@ const ONLY_CAP = 4
  * 一行。文字一律左对齐（目录树就该这么读）——
  * 换边的只有接线柱，因为它决定线从哪儿出发。
  */
-export function RowView({ row }: { row: Row }) {
-  const cls = ['row', row.kind, row.tone, row.pt.includes('l') ? 'hasl' : '']
+export function RowView({
+  row,
+  onOpen,
+  active,
+}: {
+  row: Row
+  onOpen?: (r: EntryRef) => void
+  active?: boolean
+}) {
+  const ref = row.ref
+  const clickable = !!(ref && onOpen)
+
+  const cls = [
+    'row',
+    row.kind,
+    row.tone,
+    row.pt.includes('l') ? 'hasl' : '',
+    clickable ? 'clickable' : '',
+    active ? 'active' : '',
+  ]
     .filter(Boolean)
     .join(' ')
 
+  // 行是 div 不是 button —— .row 的 flex 布局和一整套 tone class 都挂在它身上。
+  // 但「可点」必须对键盘和读屏用户同样成立，所以补上 role / tabIndex / 键盘响应。
+  const act = clickable
+    ? {
+        role: 'button',
+        tabIndex: 0,
+        onClick: () => onOpen!(ref!),
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault() // 空格默认是滚屏
+            onOpen!(ref!)
+          }
+        },
+      }
+    : {}
+
   return (
-    <div className={cls} data-a={row.anchor}>
+    <div className={cls} data-a={row.anchor} {...act}>
       {row.pt.includes('l') && <span className="pt l" />}
       <span className="tx">
         {row.kind === 'link' ? (
@@ -30,6 +72,12 @@ export function RowView({ row }: { row: Row }) {
         {row.note && <span className="rnote">{row.note}</span>}
       </span>
       {row.pt.includes('r') && <span className="pt r" />}
+      {/* 描述预览。
+          必须是 .row 的直接子级：.tx 有 overflow:hidden（给名字做 ellipsis 用的），
+          塞进去会被裁掉。
+          必须绝对定位：进了文档流就会改行高，而线是靠 DOM 锚点实时量出来的 ——
+          行高一变，所有接线柱都得重量。 */}
+      {ref?.desc && <span className="tip">{ref.desc}</span>}
     </div>
   )
 }
@@ -74,6 +122,8 @@ function Entries({
   side,
   folded,
   onToggle,
+  onOpen,
+  activeId,
 }: {
   rows: Row[]
   dim: Dim
@@ -81,6 +131,8 @@ function Entries({
   side: 'l' | 'r'
   folded: boolean
   onToggle: (d: Dim) => void
+  onOpen?: (r: EntryRef) => void
+  activeId?: string
 }) {
   if (folded && rows.length) {
     return (
@@ -95,7 +147,12 @@ function Entries({
   return (
     <>
       {rows.map((r, i) => (
-        <RowView key={i} row={r} />
+        <RowView
+          key={i}
+          row={r}
+          onOpen={onOpen}
+          active={!!(r.ref && activeId && refId(r.ref) === activeId)}
+        />
       ))}
     </>
   )
@@ -147,7 +204,19 @@ const isFolded = (f: Fold, d: Dim) => f.big.includes(d) && !f.open.has(d)
  * 每个维度同时藏着「条目列表」和「一行软链」—— 收敛时前者折叠、后者原地展开。
  * 收拢发生在同一个位置上，不是换页。
  */
-export function NowBoxView({ box, delay, fold }: { box: NowBox; delay: number; fold: Fold }) {
+export function NowBoxView({
+  box,
+  delay,
+  fold,
+  onOpen,
+  activeId,
+}: {
+  box: NowBox
+  delay: number
+  fold: Fold
+  onOpen?: (r: EntryRef) => void
+  activeId?: string
+}) {
   return (
     <div
       className={box.badge ? 'box source' : 'box'}
@@ -169,6 +238,8 @@ export function NowBoxView({ box, delay, fold }: { box: NowBox; delay: number; f
               side="r"
               folded={isFolded(fold, d.dim)}
               onToggle={fold.onToggle}
+              onOpen={onOpen}
+              activeId={activeId}
             />
             {!isFolded(fold, d.dim) && d.entries.length > 0 && fold.big.includes(d.dim) && (
               <Collapse onClick={() => fold.onToggle(d.dim)} />
@@ -192,10 +263,14 @@ export function SrcBoxView({
   dims,
   only,
   fold,
+  onOpen,
+  activeId,
 }: {
   dims: SrcBlock[]
   only: Row[]
   fold: Fold
+  onOpen?: (r: EntryRef) => void
+  activeId?: string
 }) {
   return (
     <div className="box source" style={{ '--d': '160ms' } as React.CSSProperties}>
@@ -219,6 +294,8 @@ export function SrcBoxView({
               side="l"
               folded={isFolded(fold, d.dim)}
               onToggle={fold.onToggle}
+              onOpen={onOpen}
+              activeId={activeId}
             />
             {!isFolded(fold, d.dim) && fold.big.includes(d.dim) && (
               <Collapse onClick={() => fold.onToggle(d.dim)} />
