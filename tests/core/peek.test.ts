@@ -58,10 +58,14 @@ describe('peekFile · 白名单', () => {
     expect(await peek(join(root, '.claude/settings.json'))).toEqual({ ok: false, code: 403 })
   })
 
+  // WHY: 目标必须是真实存在的文件。如果 .. 拼出来的路径根本不存在，realpath 会先
+  // 抛出 404 —— 断言就只证明了「不存在的路径读不到」，白名单前缀检查那行代码
+  // 从没被跑到，删掉它测试照样绿。这里绕到仓库内真实存在的 secret.txt，
+  // 让断言的通过与否真正依赖前缀检查有没有拦下来。
   it('路径遍历 -> 403', async () => {
     await repo()
-    const evil = join(root, '.claude/skills/../../../etc/passwd')
-    expect((await peek(evil)).ok).toBe(false)
+    const evil = join(root, '.claude/skills/../../secret.txt')
+    expect(await peek(evil)).toEqual({ ok: false, code: 403 })
   })
 
   // WHY: 前缀不以路径分隔符结尾时，`<root>/.claude/skillsEVIL/` 会命中

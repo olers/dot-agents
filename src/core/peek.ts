@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises'
+import { open, stat } from 'node:fs/promises'
 import { isAbsolute, join, normalize, sep } from 'node:path'
 import type { PeekResult } from './types.js'
 import { AGENTS_DIR, DIMS, TOOL_DIRS } from './constants.js'
@@ -52,23 +52,38 @@ export async function peekFile(roots: string[], requested: string): Promise<Peek
   const prefixes = await allowedPrefixes(roots)
   if (!prefixes.some((p) => real.startsWith(p))) return { ok: false, code: 403 }
 
-  const st = await stat(real)
-  if (!st.isFile()) return { ok: false, code: 403 } // 目录不给读
+  // realpath 检查和这里的读取之间有个时间窗口，文件可能被并发删除/替换。
+  // 这个函数是唯一的读口，边界必须都收在这一层：race 也要落回 PeekResult，
+  // 不能让 promise reject 出去，逼调用方再补一层「万一炸了怎么办」。
+  try {
+    const st = await stat(real)
+    if (!st.isFile()) return { ok: false, code: 403 } // 目录不给读
 
-  const buf = await readFile(real)
-  const truncated = buf.length > MAX_PEEK
-  const head = truncated ? buf.subarray(0, MAX_PEEK) : buf
-  const binary = head.includes(0)
+    // MAX_PEEK 存在的意义是挡资源耗尽，不是挡「返回的字节数」——
+    // 先 readFile 整个文件再截断，等于白名单形同虚设：塞一个几 GB 的文件进受控
+    // 目录，服务器照样把它整个读进内存。必须在读的层面就卡住实际读取的字节数。
+    const truncated = st.size > MAX_PEEK
+    const fh = await open(real, 'r')
+    try {
+      const buf = Buffer.alloc(Math.min(st.size, MAX_PEEK))
+      await fh.read(buf, 0, buf.length, 0)
+      const binary = buf.includes(0)
 
-  return {
-    ok: true,
-    peek: {
-      path: real,
-      // 二进制原样 toString 会喷出一屏替换字符。明说「是二进制」比装作能显示要诚实。
-      content: binary ? '' : head.toString('utf8'),
-      size: buf.length,
-      truncated,
-      binary,
-    },
+      return {
+        ok: true,
+        peek: {
+          path: real,
+          // 二进制原样 toString 会喷出一屏替换字符。明说「是二进制」比装作能显示要诚实。
+          content: binary ? '' : buf.toString('utf8'),
+          size: st.size,
+          truncated,
+          binary,
+        },
+      }
+    } finally {
+      await fh.close()
+    }
+  } catch {
+    return { ok: false, code: 404 }
   }
 }
