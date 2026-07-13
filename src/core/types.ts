@@ -138,3 +138,18 @@ export interface Result {
 }
 
 export type Resolutions = Record<string, string>
+
+/** 一次文件内容窥视的结果。 */
+export interface Peek {
+  /** realpath 之后的真实路径 */
+  path: string
+  /** binary 为 true 时留空 */
+  content: string
+  /** 文件的完整字节数（不是 content 的长度 —— 可能被截断了） */
+  size: number
+  truncated: boolean
+  binary: boolean
+}
+
+/** 403 = 不在白名单内 / 不是普通文件；404 = 不存在。 */
+export type PeekResult = { ok: true; peek: Peek } | { ok: false; code: 403 | 404 }
