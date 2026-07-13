@@ -66,15 +66,23 @@ export async function peekFile(roots: string[], requested: string): Promise<Peek
     const fh = await open(real, 'r')
     try {
       const buf = Buffer.alloc(Math.min(st.size, MAX_PEEK))
-      await fh.read(buf, 0, buf.length, 0)
-      const binary = buf.includes(0)
+      const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
+      // Buffer.alloc 是零填充的。stat 和这次 read 之间有时间窗口，文件可能被
+      // 并发截断再重写（编辑器保存的常见写法），这时 bytesRead 会小于 buf.length，
+      // 后半段仍是分配时留下的 0x00。如果不按 bytesRead 截取就直接用整个 buf 判二进制，
+      // 这些零字节会被当成文件内容，把一份普通文本文件误判成 binary、content 清空——
+      // 静默给错结果，还不抛异常。size 仍然按 stat 时的值报（跟 Peek 类型注释里
+      // 「完整字节数，不是 content 长度」的约定一致，截断场景下两者本来就允许不等）；
+      // 这里只保证 content/binary 只反映实际读到的字节，不掺入没读到的零填充。
+      const readBuf = buf.subarray(0, bytesRead)
+      const binary = readBuf.includes(0)
 
       return {
         ok: true,
         peek: {
           path: real,
           // 二进制原样 toString 会喷出一屏替换字符。明说「是二进制」比装作能显示要诚实。
-          content: binary ? '' : buf.toString('utf8'),
+          content: binary ? '' : readBuf.toString('utf8'),
           size: st.size,
           truncated,
           binary,

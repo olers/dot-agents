@@ -142,4 +142,35 @@ describe('peekFile · 内容', () => {
       expect(r.peek.size).toBe(MAX_PEEK + 1000)
     }
   })
+
+  // WHY: 锁住边界的「刚好不截断」这一侧。如果 truncated 判断或分配 buffer 的长度算
+  // 差一位（比如误用 >= 而不是 >），一份恰好等于上限的合法文件会被错误标记成
+  // truncated，或者 content 被少读一个字节——明明没超限却被当成超限处理。
+  it('恰好等于 MAX_PEEK 的文件：不截断，content 长度等于上限', async () => {
+    await repo()
+    const p = join(root, '.claude/skills/foo/exact.md')
+    await writeFile(p, 'a'.repeat(MAX_PEEK), 'utf8')
+    const r = await peek(p)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.peek.truncated).toBe(false)
+      expect(r.peek.content).toHaveLength(MAX_PEEK)
+    }
+  })
+
+  // WHY: 锁住边界的「刚好超一个字节」这一侧。如果分配 buffer 时算差一位，多分配
+  // 一个字节，读出来的 content 会比 MAX_PEEK 多 1，白名单/内存上限的保证就名不副实；
+  // 这条测试确保「超一个字节」也能被稳定判定为截断，且 content 不多不少正好是上限。
+  it('恰好比 MAX_PEEK 多一个字节的文件：截断，content 长度仍等于上限', async () => {
+    await repo()
+    const p = join(root, '.claude/skills/foo/over.md')
+    await writeFile(p, 'a'.repeat(MAX_PEEK + 1), 'utf8')
+    const r = await peek(p)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.peek.truncated).toBe(true)
+      expect(r.peek.content).toHaveLength(MAX_PEEK)
+      expect(r.peek.size).toBe(MAX_PEEK + 1)
+    }
+  })
 })
