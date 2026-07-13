@@ -90,4 +90,40 @@ describe('server', () => {
     // 而后端自己算出来的 plan 正常执行了
     expect(await pathKind(join(root, '.claude/skills'))).toBe('symlink')
   })
+
+  // WHY: /api/file 是这个 server 上唯一的读文件出口。没有 token 校验，
+  // 本机上任何一个网页都能拿它读你 ~/.claude 下的东西。
+  it('GET /api/file 没有 token -> 401', async () => {
+    const { root, srv } = await boot({ '.claude/skills/foo/SKILL.md': 'x' })
+    const p = encodeURIComponent(join(root, '.claude/skills/foo/SKILL.md'))
+    const res = await fetch(`${srv.url}/api/file?path=${p}`)
+    expect(res.status).toBe(401)
+  })
+
+  it('GET /api/file 读维度下的文件 -> 200', async () => {
+    const { root, call } = await boot({ '.claude/skills/foo/SKILL.md': 'hello foo' })
+    const p = encodeURIComponent(join(root, '.claude/skills/foo/SKILL.md'))
+    const body = await (await call(`/api/file?path=${p}`)).json()
+    expect(body.content).toBe('hello foo')
+    expect(body.binary).toBe(false)
+  })
+
+  // WHY: 和 POST /api/apply 那条同等重要。前端可以在 path 里写任何东西 ——
+  // 后端必须自己判，不能信。
+  it('GET /api/file 读维度之外的文件 -> 403', async () => {
+    const { root, call } = await boot({
+      '.claude/skills/foo/SKILL.md': 'x',
+      'PRECIOUS.md': 'keep me',
+    })
+    const p = encodeURIComponent(join(root, 'PRECIOUS.md'))
+    const res = await call(`/api/file?path=${p}`)
+    expect(res.status).toBe(403)
+  })
+
+  it('GET /api/file 读不存在的文件 -> 404', async () => {
+    const { root, call } = await boot({ '.claude/skills/foo/SKILL.md': 'x' })
+    const p = encodeURIComponent(join(root, '.claude/skills/foo/NOPE.md'))
+    const res = await call(`/api/file?path=${p}`)
+    expect(res.status).toBe(404)
+  })
 })

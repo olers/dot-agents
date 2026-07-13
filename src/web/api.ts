@@ -1,4 +1,4 @@
-import type { Plan, Resolutions, Result, State } from '../core/types.js'
+import type { Peek, Plan, Resolutions, Result, State } from '../core/types.js'
 
 declare global {
   interface Window {
@@ -32,3 +32,5 @@ export const getPlan = (resolutions: Resolutions) =>
 
 export const doApply = (resolutions: Resolutions, force: boolean) =>
   call<Result>('/api/apply', { method: 'POST', body: JSON.stringify({ resolutions, force }) })
+
+export const getFile = (path: string) => call<Peek>(`/api/file?path=${encodeURIComponent(path)}`)

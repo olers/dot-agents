@@ -9,6 +9,7 @@ import { scan } from '../core/scan.js'
 import { buildPlan } from '../core/plan.js'
 import { applyPlan } from '../core/apply.js'
 import { pathKind } from '../core/fsx.js'
+import { peekFile } from '../core/peek.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WEB_ROOT = join(HERE, '../web') // tsc 输出 dist/server/，vite 输出 dist/web/
@@ -83,6 +84,19 @@ export async function startServer(
 
           const plan = buildPlan(await scan(repoRoot), resolutions)
           json(res, 200, await applyPlan(plan, { force }))
+          return
+        }
+
+        if (path === '/api/file' && req.method === 'GET') {
+          // 只读、只 GET。所有路径校验都在 peekFile 里 —— server 只做 HTTP 翻译，
+          // 一个字节的「应该没问题吧」都不在这里加。
+          const want = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('path') ?? ''
+          const r = await peekFile([repoRoot, homedir()], want)
+          if (!r.ok) {
+            json(res, r.code, { error: r.code === 404 ? 'not found' : 'forbidden' })
+            return
+          }
+          json(res, 200, r.peek)
           return
         }
       } catch (e) {
