@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.agents/.attic/
+
+# Claude Code 的本机权限白名单。它会随使用不断累积命令和路径 ——
+# 别指望全局 gitignore 挡住它，那只在你这台机器上有效。
+.claude/settings.local.json

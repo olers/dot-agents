@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+import { Command } from 'commander'
+import open from 'open'
+import { findRepoRoot, scan } from '../core/scan.js'
+import { buildPlan } from '../core/plan.js'
+import { applyPlan } from '../core/apply.js'
+import { buildLinkPlan, renderState, renderPlan, renderResult, conflictCells } from './render.js'
+import { startServer } from '../server/index.js'
+
+async function repoRootOrDie(): Promise<string> {
+  const root = await findRepoRoot(process.cwd())
+  if (!root) {
+    console.error('不在 git 仓库里。dot-agents 只在 git 仓库内工作 —— git 是变更的第一道兜底。')
+    process.exit(1)
+  }
+  return root
+}
+
+const program = new Command()
+program
+  .name('dot-agents')
+  .description('把多个 AI Agent 工具目录的通用配置统一到 .agents/ 唯一源')
+  .version('0.1.0')
+
+program
+  .command('status')
+  .description('打印当前仓库的状态和变更计划，不做任何修改')
+  .action(async () => {
+    const root = await repoRootOrDie()
+    const state = await scan(root)
+    const plan = buildPlan(state, {})
+    console.log(renderState(state, conflictCells(plan)))
+    console.log('')
+    console.log(renderPlan(plan))
+  })
+
+program
+  .command('apply')
+  .description('无头执行（跳过 UI）。有未裁决冲突时，这些条目全部跳过。')
+  .option('-y, --yes', '不再确认，直接执行')
+  .option('-f, --force', 'git 工作区不干净也执行')
+  .action(async (opts: { yes?: boolean; force?: boolean }) => {
+    const root = await repoRootOrDie()
+    const plan = buildPlan(await scan(root), {})
+    console.log(renderPlan(plan))
+    if (!opts.yes) {
+      console.log('')
+      console.log('加 -y 才会真的执行。')
+      return
+    }
+    console.log('')
+    console.log(renderResult(await applyPlan(plan, { force: opts.force })))
+  })
+
+program
+  .command('link')
+  .description('幂等的「安装」：只按 .agents 现有内容补齐软链，绝不移动或删除任何东西')
+  .action(async () => {
+    const root = await repoRootOrDie()
+    const plan = buildLinkPlan(await scan(root))
+    console.log(renderPlan(plan))
+    if (plan.ops.length === 0) return
+    console.log('')
+    // link 只创建软链，不销毁任何东西 -> 不需要「git 干净」这道闸
+    console.log(renderResult(await applyPlan(plan, { force: true })))
+  })
+
+// 默认命令：起 server + 开浏览器
+program.action(async () => {
+  const root = await repoRootOrDie()
+  const { url, close } = await startServer(root)
+  console.log(`dot-agents 已启动：${url}`)
+  console.log('在浏览器里审阅计划并确认。按 Ctrl-C 退出。')
+  await open(url)
+  process.on('SIGINT', () => {
+    close()
+    process.exit(0)
+  })
+})
+
+await program.parseAsync(process.argv)

@@ -1,0 +1,856 @@
+/*
+ * 墨流 —— 纸底排版 + 连线收敛。
+ *
+ * 整张图是一条流：散乱 → 收敛 → 分发。
+ * 线只用两个语义色：赭石 = 重复，墨绿 = 软链。不引第三种。
+ */
+
+:root {
+  --paper: #f6f7f4;
+  --sunk: #f1f2ee; /* 框底：比纸略沉，不是另一种颜色 */
+  --ink: #161b18;
+  --ink-soft: #5c635b;
+  --ink-faint: #99a095;
+  --hair: #dcdfd7;
+  --hair-soft: #e7e9e3;
+  --ochre: #9c5a3c;
+  --moss: #2e6b52;
+  --moss-wash: #e6eee9;
+  --mono: 'SF Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 暗色：换纸不换墨。赭石与墨绿都提亮到能在深底上站住。 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #141614;
+    --sunk: #191c19;
+    --ink: #e8ebe4;
+    --ink-soft: #99a094;
+    --ink-faint: #676e64;
+    --hair: #2a2e29;
+    --hair-soft: #21241f;
+    --ochre: #d18f6b;
+    --moss: #74c39d;
+    --moss-wash: #17251e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.6 'Avenir Next', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 46px 44px 80px;
+}
+
+.muted {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+.err {
+  color: var(--ochre);
+}
+code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* ── 页眉 ── */
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--hair);
+}
+.title {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-top: 3px;
+}
+
+.tabs {
+  display: flex;
+  gap: 26px;
+}
+.tabs button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0 0 4px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-bottom: 1.5px solid transparent;
+  transition: color 0.18s, border-color 0.18s;
+}
+.tabs button:hover {
+  color: var(--ink-soft);
+}
+.tabs button[aria-selected='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+.tabs button:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 3px;
+}
+
+/* ── 图：四列 —— 散乱 | 计数 | 唯一源 | 分发 ── */
+.graph {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px minmax(0, 0.92fr) minmax(0, 1.05fr);
+  align-items: start;
+  padding-top: 38px;
+}
+
+.wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  transition: opacity 0.3s ease;
+}
+/* 折叠期间线全部退场：接线柱一路在漂移，线留着只会甩得到处都是 */
+.graph.collapsing .wires {
+  opacity: 0;
+}
+
+.wire {
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+  stroke-dasharray: var(--len);
+  stroke-dashoffset: var(--len);
+  animation: draw 0.8s var(--d, 0ms) cubic-bezier(0.33, 0.9, 0.3, 1) forwards;
+}
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* 重复：两条线撞进唯一源同一行 */
+.wire.dup {
+  stroke: var(--ochre);
+  stroke-width: 1.5;
+}
+
+/* 分发的预览。计划态是虚线 —— 那些链还没建立，它是预告，不是事实。 */
+.wire.plan {
+  stroke: var(--moss);
+  stroke-dasharray: 3 4;
+  stroke-dashoffset: 0;
+  opacity: 0;
+  animation: fadein 0.6s var(--d, 0ms) ease forwards;
+}
+@keyframes fadein {
+  to {
+    opacity: 0.42;
+  }
+}
+
+/* 已建立的软链。draw 必须留着 —— 只挂 breathe 会把 dashoffset 顶死在 --len，线就画不出来。 */
+.wire.linked {
+  stroke: var(--moss);
+  stroke-width: 1.4;
+  animation:
+    draw 0.85s var(--d, 0ms) cubic-bezier(0.33, 0.9, 0.3, 1) forwards,
+    breathe 3.4s calc(var(--d, 0ms) + 0.85s) ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 中缝：一条真的贯穿全图的线，操作数长在线上 */
+.seam {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+}
+.seam::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hair);
+}
+/* 操作数坐在线束最密的地方。左右也要留出纸色，不然线从数字中间穿过去 ——
+   它该是一枚扣在线束上的铆钉，不是被线缠住的东西。 */
+.count {
+  position: sticky;
+  top: 44%;
+  align-self: center;
+  background: var(--paper);
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  z-index: 3;
+}
+.count-n {
+  font-size: 44px;
+  font-weight: 200;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.6s ease;
+}
+.graph:not(.plan) .count-n {
+  color: var(--moss);
+}
+.count-l {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+/* ── 列 ── */
+.col {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.col-now {
+  padding-right: 30px;
+}
+.col-src {
+  padding: 0 30px;
+}
+.col-dist {
+  padding-left: 30px;
+}
+
+.col-h {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 4px;
+  min-height: 20px;
+}
+.col-h .lab {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.col-now .lab {
+  color: var(--ochre);
+}
+.col-src .lab {
+  color: var(--moss);
+}
+.col-h .muted-lab {
+  color: var(--ink-soft);
+}
+.col-h .sub {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+/* ── 点目录 = 一个框 ── */
+.box {
+  border: 1px solid var(--hair);
+  border-radius: 7px;
+  background: var(--sunk);
+  padding: 11px 14px 12px;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: rise 0.5s var(--d, 0ms) cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* 唯一源：整页的重心，所以只有它上色 */
+.box.source {
+  border-color: color-mix(in srgb, var(--moss) 42%, transparent);
+  background: var(--moss-wash);
+}
+/* 收敛后，只剩软链的工具目录也认领墨绿 */
+.graph:not(.plan) .col-dist .box.tool {
+  border-color: color-mix(in srgb, var(--moss) 28%, transparent);
+}
+
+.box-h {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 7px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--hair-soft);
+}
+.box.source .box-h {
+  color: var(--moss);
+  border-bottom-color: color-mix(in srgb, var(--moss) 22%, transparent);
+}
+.badge {
+  font-family: 'Avenir Next', sans-serif;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--moss);
+  border: 1px solid color-mix(in srgb, var(--moss) 40%, transparent);
+  border-radius: 99px;
+  padding: 1px 8px;
+}
+
+/* ── 行 ──
+   文字一律左对齐（目录树就该这么读）。换边的只有接线柱 ——
+   它决定线从哪儿出发，文字不该跟着它跑。 */
+.row {
+  display: flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 2;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  min-width: 0;
+  transition: color 0.4s ease, opacity 0.35s ease, background 0.4s ease;
+}
+.row .tx {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row .rnote {
+  margin-left: 10px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+/* 接线柱骑在框的边线上。所有线因此从同一条竖线出发 —— 束才是平行的，不是散射。 */
+.pt {
+  width: 5px;
+  height: 5px;
+  border-radius: 99px;
+  flex: none;
+  background: var(--hair);
+  box-shadow: 0 0 0 2px var(--sunk);
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+}
+.pt.l {
+  margin-left: -16px;
+  margin-right: 11px;
+}
+.pt.r {
+  margin-right: -16px;
+  margin-left: 11px;
+}
+.box.source .pt {
+  box-shadow: 0 0 0 2px var(--moss-wash);
+}
+
+.row.dir .tx,
+.row.note .tx {
+  padding-left: 11px;
+}
+.row.item .tx {
+  padding-left: 24px;
+}
+/* 左接线柱的 margin 已经顶出了缩进，别再叠一次 */
+.row.dir.hasl .tx,
+.row.note.hasl .tx {
+  padding-left: 0;
+}
+.row.item.hasl .tx {
+  padding-left: 13px;
+}
+
+/* 同名但内容不同，还没裁决 */
+.row.dup {
+  color: var(--ochre);
+}
+.row.dup .pt {
+  background: var(--ochre);
+}
+.row.dup .rnote {
+  color: var(--ochre);
+  opacity: 0.8;
+}
+
+/* 冲突里被选中的那份 */
+.row.won {
+  color: var(--moss);
+}
+.row.won .pt {
+  background: var(--moss);
+  box-shadow: 0 0 0 2px var(--sunk), 0 0 0 4px color-mix(in srgb, var(--moss) 18%, transparent);
+}
+
+/* 落败 / 内容完全相同的重复副本：断线之前，字先认输 */
+.row.loser,
+.row.dropped {
+  color: var(--ink-faint);
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.row.loser .pt,
+.row.dropped .pt {
+  background: var(--hair);
+  box-shadow: 0 0 0 2px var(--sunk);
+}
+
+.row.broken {
+  color: var(--ochre);
+}
+.row.muted {
+  color: var(--ink-faint);
+}
+
+/* ── 软链行：一眼看出这不是真目录 ── */
+.row.link {
+  background: color-mix(in srgb, var(--moss) 9%, transparent);
+  border-radius: 4px;
+  margin: 2px 0;
+  line-height: 2.1;
+}
+.row.link .tx {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-left: 11px;
+}
+.row.link.hasl .tx {
+  padding-left: 0;
+}
+.row.link .rname {
+  color: var(--moss);
+  font-weight: 600;
+}
+.row.link .rarrow {
+  color: var(--moss);
+  opacity: 0.55;
+  font-size: 12px;
+}
+.row.link .rtarget {
+  color: var(--moss);
+  opacity: 0.8;
+}
+.row.link .pt {
+  background: var(--moss);
+  box-shadow: 0 0 0 2px var(--sunk), 0 0 0 4px color-mix(in srgb, var(--moss) 18%, transparent);
+}
+
+/* 计划态：右边那两列描述的还是「将要」。压暗它，别让预览冒充事实。 */
+.graph.plan .col-src .row.item,
+.graph.plan .col-dist .row.link {
+  opacity: 0.55;
+}
+.graph.plan .col-dist .row.link .pt {
+  background: var(--ink-faint);
+  box-shadow: 0 0 0 2px var(--sunk);
+}
+/* 冲突那一行是例外 —— 它现在就该刺眼 */
+.graph.plan .col-src .row.item.dup {
+  opacity: 1;
+}
+
+/* ── 折叠：条目列表 ⇄ 一行软链，在同一个位置上互换 ── */
+.entries {
+  max-height: 400px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.55s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.28s ease;
+}
+.graph:not(.plan) .col-now .dim.willlink .entries {
+  max-height: 0;
+  opacity: 0;
+}
+
+.linkrow {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.5s 0.14s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.36s 0.24s ease;
+}
+.graph:not(.plan) .col-now .dim.willlink .linkrow {
+  max-height: 2.6em;
+  opacity: 1;
+}
+
+/* ── 裁决 ── */
+.conf {
+  margin-top: 46px;
+  padding-top: 24px;
+  border-top: 1px solid var(--hair);
+}
+.conf-h {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.conf-h .t {
+  font-size: 13px;
+  font-weight: 600;
+}
+.conf-h .c {
+  font-size: 11px;
+  color: var(--ochre);
+  border: 1px solid color-mix(in srgb, var(--ochre) 32%, transparent);
+  border-radius: 99px;
+  padding: 1px 9px;
+  font-variant-numeric: tabular-nums;
+}
+.conf-h .h {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-left: auto;
+}
+.conf-note {
+  margin: 0 0 8px;
+}
+
+.crow {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--hair-soft);
+}
+.crow:last-child {
+  border-bottom: 0;
+}
+.ckey {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  min-width: 190px;
+  color: var(--ochre);
+}
+.cands {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cand {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  padding: 7px 15px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transition: border-color 0.16s, background 0.16s, transform 0.16s;
+}
+.cand:hover {
+  border-color: var(--ink-faint);
+  transform: translateY(-1px);
+}
+.cand:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 2px;
+}
+.cand-tool {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cand-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+.cand[aria-pressed='true'] {
+  border-color: var(--moss);
+  background: var(--moss-wash);
+}
+.cand[aria-pressed='true'] .cand-tool {
+  color: var(--moss);
+}
+
+/* ── 风险 ── */
+/* ── 折叠：条目太多时收成一行。整行可点。 ── */
+.foldbtn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.foldbtn .rname {
+  border-bottom: 1px dashed var(--hair);
+}
+.foldbtn:hover .rname,
+.foldbtn:hover .rnote {
+  color: var(--ink-soft);
+}
+.foldbtn:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 1px;
+}
+
+/* ── 不认识的点目录：图外一条。看得见，但明显不参与收敛。 ── */
+.strangers {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--hair-soft);
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.strangers .lab {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.strangers .slist {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.strangers .s {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.risks {
+  border-left: 2px solid color-mix(in srgb, var(--ochre) 45%, transparent);
+  padding: 2px 0 2px 14px;
+  margin: 22px 0 0 2px;
+}
+.risks p {
+  color: var(--ochre);
+  font-size: 12.5px;
+  margin: 4px 0;
+}
+
+/* ── 执行 ── */
+.bar {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hair);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.note {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.note .warn {
+  color: var(--ochre);
+}
+.go {
+  appearance: none;
+  background: var(--ink);
+  color: var(--paper);
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 12px 32px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.12s, opacity 0.2s;
+}
+.go:hover:not(:disabled) {
+  background: var(--moss);
+}
+.go:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.go:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 3px;
+}
+.go:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── 结果 ──
+   注意别叫 .done：图的 phase class 是 `graph done`，撞上了会把这里的
+   border-top / margin 套到整张图上。 */
+.result {
+  margin-top: 46px;
+  padding-top: 24px;
+  border-top: 1px solid var(--hair);
+  animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.result .big {
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.result .big em {
+  font-style: normal;
+  color: var(--moss);
+}
+.result.bad .big {
+  color: var(--ochre);
+}
+.result dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 20px;
+  margin: 12px 0;
+  font-size: 12.5px;
+}
+.result dt {
+  color: var(--ink-faint);
+}
+.result dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--moss);
+}
+.result-err {
+  color: var(--ochre);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* ── 全局（只读） ── */
+/* 全局目录：唯一源在左，各工具铺成网格在右。
+   竖着堆的话，~/.agents 里 50 多个 skill 加 8 个工具目录，一屏划不到底。 */
+.global {
+  padding-top: 38px;
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) 1fr;
+  gap: 12px 32px;
+  align-items: start;
+}
+.global > .col-h {
+  grid-column: 1 / -1;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .global {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 窄屏：四列排不开，退化成堆叠。没有中缝，也就没有线。 ── */
+@media (max-width: 1040px) {
+  .app {
+    padding: 32px 20px 60px;
+  }
+  .graph {
+    grid-template-columns: 1fr;
+  }
+  .wires {
+    display: none;
+  }
+  .col-now,
+  .col-src,
+  .col-dist {
+    padding: 0;
+  }
+  .pt.l {
+    margin-left: 0;
+    margin-right: 11px;
+  }
+  .pt.r {
+    margin-right: 0;
+    margin-left: 11px;
+  }
+  .seam {
+    align-self: auto;
+    padding: 24px 0;
+  }
+  .seam::before {
+    top: 50%;
+    left: 0;
+    right: 0;
+    bottom: auto;
+    width: auto;
+    height: 1px;
+  }
+  .count {
+    position: static;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 9px;
+    padding: 0 18px;
+  }
+  .count-n {
+    font-size: 30px;
+  }
+  .ckey {
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .wire {
+    stroke-dashoffset: 0 !important;
+  }
+  .wire.plan {
+    opacity: 0.42 !important;
+  }
+}
