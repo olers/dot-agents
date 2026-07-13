@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Dim, Plan, Resolutions, Result } from '../core/types.js'
 import { doApply, getPlan, getState, type StateBundle } from './api.js'
-import { buildGraph, readOnlyPlan } from './graph.js'
+import { buildGraph, readOnlyPlan, refId, type EntryRef } from './graph.js'
 import { COLLAPSE_MS, CONVERGE_MS, type Phase } from './phase.js'
 import { DistBoxView, NowBoxView, SrcBoxView } from './components/Boxes.js'
 import { Wires } from './components/Wires.js'
 import { ConflictPicker } from './components/ConflictPicker.js'
 import { ResultView } from './components/ResultView.js'
+import { Detail } from './components/Detail.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -18,6 +19,7 @@ export function App() {
   const [result, setResult] = useState<Result | null>(null)
   const [phase, setPhase] = useState<Phase>('plan')
   const [err, setErr] = useState<string | null>(null)
+  const [detail, setDetail] = useState<EntryRef | null>(null)
 
   // 重测信号。折叠动画跑完、裁决变了、展开了一个维度，接线柱的位置就变了，线得重新量。
   const [gen, setGen] = useState(0)
@@ -116,6 +118,8 @@ export function App() {
       return next
     })
 
+  const activeId = detail ? refId(detail) : undefined
+
   if (tab === 'global')
     return (
       <Shell path={bundle.repo.repoRoot} tab={tab} setTab={setTab}>
@@ -130,6 +134,8 @@ export function App() {
                 dims={globalGraph.src.dims}
                 only={globalGraph.src.only}
                 fold={{ big: globalGraph.bigDims, open, onToggle }}
+                onOpen={setDetail}
+                activeId={activeId}
               />
               {/* 全局目录里工具多、条目多。竖着堆下去一屏装不下 —— 铺成网格。 */}
               <div className="tiles">
@@ -142,6 +148,7 @@ export function App() {
             <p className="muted">{bundle.globalError}</p>
           )}
         </div>
+        {detail && <Detail entry={detail} onClose={() => setDetail(null)} />}
       </Shell>
     )
 
@@ -168,6 +175,8 @@ export function App() {
               box={b}
               delay={i * 60}
               fold={{ big: graph.bigDims, open, onToggle }}
+              onOpen={setDetail}
+              activeId={activeId}
             />
           ))}
         </div>
@@ -188,6 +197,8 @@ export function App() {
             dims={graph.src.dims}
             only={graph.src.only}
             fold={{ big: graph.bigDims, open, onToggle }}
+            onOpen={setDetail}
+            activeId={activeId}
           />
         </div>
 
@@ -246,6 +257,8 @@ export function App() {
           </div>
         </>
       )}
+
+      {detail && <Detail entry={detail} onClose={() => setDetail(null)} />}
     </Shell>
   )
 }

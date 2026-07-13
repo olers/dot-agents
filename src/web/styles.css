@@ -899,3 +899,125 @@ code {
     opacity: 0.42 !important;
   }
 }
+
+/* ── 详情侧栏 ──
+   不加遮罩层：用户要一边看图一边看侧栏，遮罩会把图盖掉。 */
+.detail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(480px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border-left: 1px solid var(--hair);
+  box-shadow: -8px 0 28px rgb(0 0 0 / 0.08);
+  padding: 22px 22px 0;
+}
+
+.detail-h {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.detail-t {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.detail-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
+.detail-from {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.detail-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-faint);
+  padding: 2px 6px;
+}
+.detail-x:hover {
+  color: var(--ink);
+}
+
+.detail-path {
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  word-break: break-all;
+}
+
+.detail-desc {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+
+.detail-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hair-soft);
+}
+.dfile {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  background: var(--sunk);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.dfile:hover {
+  color: var(--ink);
+}
+.dfile[aria-pressed='true'] {
+  color: var(--moss);
+  border-color: color-mix(in srgb, var(--moss) 45%, transparent);
+  background: var(--moss-wash);
+}
+
+/* 内容区自己滚。整个侧栏跟着滚的话，条目名和文件清单会被滚出视野。 */
+.detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 -22px;
+  padding: 0 22px 22px;
+}
+.detail-pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-cut {
+  flex: none;
+  margin: 0 -22px;
+  padding: 8px 22px;
+  border-top: 1px solid var(--hair);
+  font-size: 11px;
+  color: var(--ochre);
+}
