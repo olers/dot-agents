@@ -8,6 +8,8 @@ export interface Entry {
   path: string // 绝对路径
   isDir: boolean
   files: string[] // 条目内的相对文件清单，给冲突卡做差异摘要
+  /** frontmatter 里的 description。没有 frontmatter、或里头没这个 key 时为 undefined。 */
+  desc?: string
 }
 
 /** 冲突里的一个候选方。tool 为 '.agents' 时表示唯一源自己那份。 */

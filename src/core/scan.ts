@@ -4,6 +4,7 @@ import { TOOL_DIRS, DIMS, AGENTS_DIR, NOT_A_TOOL } from './constants.js'
 import { pathKind, readLinkTarget, listChildren, isNoise } from './fsx.js'
 import { hashPath, listFiles } from './hash.js'
 import { gitIsClean, gitCheckIgnored } from './git.js'
+import { readDesc } from './meta.js'
 
 export async function findRepoRoot(cwd: string): Promise<string | null> {
   let cur = resolve(cwd)
@@ -47,6 +48,8 @@ async function readDim(dir: string): Promise<{ entries: Entry[]; residue: Residu
       isDir: kind === 'dir',
       hash: await hashPath(p),
       files: await listFiles(p),
+      // scan 已经为了算 hash 读过这个条目的全部文件，多读一个 SKILL.md 的成本可以忽略。
+      desc: await readDesc(p, kind === 'dir'),
     })
   }
 
