@@ -1,79 +1,88 @@
 # dot-agents
 
-把一个仓库里散落在 `.claude/` `.codebuddy/` `.cursor/` … 各处的 skills / commands / agents / hooks
-收敛到 `.agents/` 唯一源，其余目录改为软链指向它。
+[![npm version](https://img.shields.io/npm/v/@linemagic/dot-agents.svg)](https://www.npmjs.com/package/@linemagic/dot-agents)
+[![license](https://img.shields.io/npm/l/@linemagic/dot-agents.svg)](./LICENSE)
+[![node](https://img.shields.io/node/v/@linemagic/dot-agents.svg)](https://nodejs.org)
 
-改一处，所有 AI 工具同时生效。
+**English** | [简体中文](./README.zh-CN.md)
 
-## 用法
+Consolidate the skills / commands / agents / hooks scattered across `.claude/`, `.codebuddy/`, `.cursor/`, and other tool directories into a single source of truth — `.agents/` — and replace the rest with symlinks pointing back to it.
 
+Edit once; every AI tool sees the change.
+
+## Features
+
+- **Single source of truth.** `.agents/` is the only tracked copy; everything else is a symlink.
+- **Plan before apply.** The default command never writes to disk directly — it scans, computes a change plan, and shows it in the browser for your confirmation.
+- **Conflict-safe.** Same name but different content? It stops and asks. It never picks for you and never auto-merges.
+- **Relative symlinks.** Links survive being moved to another machine.
+- **Full backups.** Everything moved or deleted is backed up with a generated `undo.sh`. Failures roll back atomically.
+- **No daemon.** No resident process, no fixed port. The server exits when it's done.
+
+## Requirements
+
+- Node.js >= 20
+
+## Usage
+
+```bash
+npx @linemagic/dot-agents           # Launch browser: review status, inspect the plan, resolve conflicts, apply on confirm
+npx @linemagic/dot-agents status    # Terminal only, read-only
+npx @linemagic/dot-agents apply -y  # Headless (entries with unresolved conflicts are skipped)
+npx @linemagic/dot-agents link      # Idempotent "install": add missing symlinks only — never moves or deletes anything
 ```
-npx dot-agents           # 起浏览器：看状态、审阅计划、裁决冲突、点确认才落盘
-npx dot-agents status    # 纯终端，只读
-npx dot-agents apply -y  # 无头执行（有未裁决冲突时，这些条目全部跳过）
-npx dot-agents link      # 幂等的「安装」：只补软链，绝不移动或删除任何东西
-```
 
-默认命令**不会直接改文件**。它扫描仓库、算出一份变更计划，在浏览器里把
-「会变成什么样、有什么风险、有什么收益」摆给你看，你点确认之后后端才动手。
+The default command **does not modify files directly.** It scans the repo, computes a change plan, and lays out in the browser what will change, the risks, and the benefits. The backend acts only after you confirm.
 
-图上每个条目 hover 能看到它的 frontmatter 描述，点开能看到它的文件清单和每个文件的内容 ——
-裁决冲突之前，你有权先知道这两份 `foo` 到底哪儿不一样。
+Hover any entry in the graph to read its frontmatter description; open it to see the file list and the content of each file — so before resolving a conflict, you can see exactly how the two copies of `foo` differ.
 
-## 达成态
+## Result layout
 
 ```
 .agents/
-  skills/       ← 唯一源，进 git
+  skills/       ← single source, tracked in git
   commands/
 .claude/
-  skills   -> ../.agents/skills      ← 软链，不进 git
-  settings.json                      ← 工具专属，不碰
+  skills   -> ../.agents/skills      ← symlink, not tracked
+  settings.json                      ← tool-specific, left untouched
 .codebuddy/
   skills   -> ../.agents/skills
 ```
 
-软链不进 git，`.agents/` 进 git。clone 下来跑一次 `npx dot-agents link` 补齐软链。
-软链一律是**相对路径**，换台机器照样有效。
+Symlinks stay out of git; `.agents/` goes in. After cloning, run `npx @linemagic/dot-agents link` once to restore the symlinks. Links are always **relative**, so they keep working on another machine.
 
-## 冲突
+## Conflicts
 
-同名、内容不同（比如 `.claude/skills/foo` 和 `.codebuddy/skills/foo` 不一样）时，
-工具**停下来问你**，绝不替你选，也绝不自动合并。
+When two entries share a name but differ in content (e.g. `.claude/skills/foo` and `.codebuddy/skills/foo`), the tool **stops and asks you**. It never chooses on your behalf and never auto-merges.
 
-未裁决的冲突会导致**整个维度不接软链** —— 因为软链是目录级的，只要还有一个条目留在
-`.claude/skills/` 里，这个目录就不能被替换成软链。UI 会明确告诉你哪些目录因此没接上。
+An unresolved conflict keeps the **entire dimension unlinked** — because symlinks are directory-level, one entry left in `.claude/skills/` is enough to prevent that directory from becoming a symlink. The UI tells you exactly which directories were skipped for this reason.
 
-内容**完全相同**的重复副本不算冲突，直接去重，不打扰你。
+Duplicate copies with **identical content** are not conflicts — they're deduplicated silently.
 
-## 它不做什么
+## What it does not do
 
-- **不做格式转换。** 只处理同名且格式一致的目录。`rules/` 各家格式不兼容
-  （`.cursor` 用 `.mdc` 且带 frontmatter globs，`.claude` 压根没有 `rules/` 概念），
-  一律列进「工具专属」，看得见但不碰。
-- **不改全局目录。** `~/.claude` 等只读展示。
-- **不常驻。** 没有 daemon，没有固定端口。server 跑完即退。
+- **No format conversion.** It only handles same-name directories with matching formats. `rules/` formats are mutually incompatible (`.cursor` uses `.mdc` with frontmatter globs; `.claude` has no `rules/` concept at all), so they're listed under "tool-specific" — visible but untouched.
+- **No changes to global directories.** `~/.claude` and the like are shown read-only.
+- **No daemon.** No resident process, no fixed port. The server exits when it's done.
 
-## 安全网
+## Safety net
 
-变更前，所有会被移动或删除的内容全部备份进 `.agents/.attic/<时间戳>/backup/`，
-并生成一个可执行的 `undo.sh`。执行中途失败会**整体回滚**，不留半成品状态。
+Before any change, everything that will be moved or deleted is backed up to `.agents/.attic/<timestamp>/backup/`, along with an executable `undo.sh`. A mid-run failure rolls back **as a whole**, leaving no half-applied state.
 
-**备份不是锦上添花。** `.claude/` 在大多数仓库里是 gitignore 的 —— git 根本没跟踪它，
-`git checkout` 救不回来。`.attic/` 是唯一的后悔药，所以它不可关闭，`--force` 也跳不过它。
+**Backups are not optional.** In most repos `.claude/` is gitignored — git never tracked it, so `git checkout` can't bring it back. `.attic/` is the only way to undo, so it cannot be disabled and `--force` cannot skip it.
 
-（`--force` 只跳过「git 工作区必须干净」那道闸，跳不过备份。）
+(`--force` only skips the "git working tree must be clean" gate; it never skips the backup.)
 
-## 开发
+## Development
 
-```
+```bash
 npm install
-npm test        # vitest。core 全部对着真实临时目录跑，不 mock fs ——
-                # 软链行为就是这个工具的全部，mock 掉等于什么都没测。
+npm test        # vitest. Core tests run against real temp directories, no fs mocking —
+                # symlink behavior IS the whole point of this tool, so mocking it would test nothing.
 npm run build
 ```
 
-设计文档：`docs/superpowers/specs/2026-07-11-dot-agents-design.md`
+Design doc: `docs/superpowers/specs/2026-07-11-dot-agents-design.md`
 
 ## License
 
