@@ -1,9 +1,19 @@
 {
   "name": "@linemagic/dot-agents",
-  "version": "0.1.0",
-  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "version": "0.2.0",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "description": "把散落在 .claude/ .codex/ .cursor/ 等各个点目录里的 skills / commands / agents / hooks 收敛成唯一源 .agents/，其余目录只留软链",
-  "keywords": ["agents", "skills", "claude-code", "symlink", "monorepo", "dotfiles"],
+  "keywords": [
+    "agents",
+    "skills",
+    "claude-code",
+    "symlink",
+    "monorepo",
+    "dotfiles"
+  ],
   "license": "MIT",
   "author": "LineMagic",
   "repository": {
@@ -11,11 +21,19 @@
     "url": "git+https://github.com/olers/dot-agents.git"
   },
   "homepage": "https://github.com/olers/dot-agents#readme",
-  "bugs": { "url": "https://github.com/olers/dot-agents/issues" },
+  "bugs": {
+    "url": "https://github.com/olers/dot-agents/issues"
+  },
   "type": "module",
-  "bin": { "dot-agents": "./dist/cli/index.js" },
-  "engines": { "node": ">=18" },
-  "files": ["dist"],
+  "bin": {
+    "dot-agents": "./dist/cli/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && vite build",
     "prepare": "npm run build",
