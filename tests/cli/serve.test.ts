@@ -37,6 +37,10 @@ function serveCli(args: string[]) {
     })
     proc.on('exit', (code) => reject(new Error(`exited ${code} before output; stderr=${err}`)))
   })
+  // 期望 exit 1 的用例只 await exited 不 await firstLine，firstLine 必然 reject。
+  // 预挂一个空 catch 标记「已处理」，防 unhandled rejection 偶发炸掉整轮 vitest；
+  // 真正 await firstLine 的用例照常收到 reject，不受影响。
+  firstLine.catch(() => {})
   const exited = new Promise<number | null>((r) => proc.on('exit', r))
   return { proc, firstLine, exited, stderr: () => err, stdout: () => out }
 }
