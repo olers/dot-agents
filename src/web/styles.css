@@ -723,6 +723,199 @@ code {
   color: var(--ink-faint);
 }
 
+/* ── 计划回执 ──
+   一份读起来像变更清单的东西：一句结果 + 每项变更一行。
+   刻意不做成「卡片套卡片」—— 用发丝线分隔，靠留白和一枚安全徽标读懂。 */
+.plan-sum {
+  margin-top: 30px;
+  padding-top: 24px;
+  border-top: 1px solid var(--hair);
+}
+/* 区标题：给回执一个明确的入口和重量。数字用墨绿挑出来，和接线柱那枚铆钉呼应。 */
+.plan-head {
+  margin-bottom: 20px;
+}
+.plan-h2 {
+  margin: 0 0 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.plan-h2-n {
+  font-size: 26px;
+  font-weight: 300;
+  line-height: 0.9;
+  color: var(--moss);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+.plan-h2-l {
+  margin-left: -3px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+.plan-outcome {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+/* 变更清单：整组用发丝框收住，让它读起来像一张「回执」，而不是散落的段落。 */
+.chg-list {
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  padding: 2px 16px;
+  background: var(--sunk);
+}
+.chg {
+  padding: 15px 0 14px;
+  border-top: 1px solid var(--hair-soft);
+}
+.chg:first-of-type {
+  border-top: 0;
+}
+/* 破坏性变更给一道赭石边，扫一眼就知道「这项动了我的东西」——不用 hover。 */
+.chg-warn {
+  border-left: 2px solid color-mix(in srgb, var(--ochre) 55%, transparent);
+  padding-left: 14px;
+  margin-left: -16px;
+}
+.chg-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+.chg-title {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.chip {
+  flex: none;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.chip.safe {
+  color: var(--moss);
+  background: var(--moss-wash);
+}
+.chip.warn {
+  color: var(--ochre);
+  background: color-mix(in srgb, var(--ochre) 14%, transparent);
+}
+.chip.blocked {
+  color: var(--ink-soft);
+  background: var(--sunk);
+  font-family: var(--mono);
+}
+/* 主陈述：卡片的焦点。比原因行大、结构清晰 —— 现状灰、箭头挑出来、结果墨绿。 */
+.chg-flow {
+  margin-top: 9px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+.chg-before {
+  color: var(--ink-soft);
+}
+.chg-arrow {
+  color: var(--moss);
+  font-size: 15px;
+  font-weight: 600;
+}
+.chg-after {
+  font-family: var(--mono);
+  color: var(--moss);
+}
+.chg-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.chg-link-tag {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--moss);
+  background: var(--moss-wash);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.chg-link-target {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--moss);
+}
+/* 原因：次级。更小更静，一枚「为什么」标签把它和主陈述分开。 */
+.chg-reason {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-faint);
+}
+.chg-why {
+  margin-right: 7px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 1px 5px;
+  vertical-align: 1px;
+}
+.chg-ops {
+  margin-top: 9px;
+  font-size: 12px;
+}
+.chg-ops summary {
+  cursor: pointer;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+.chg-ops summary:hover {
+  color: var(--ink-soft);
+}
+.chg-ops ul {
+  margin: 8px 0 0;
+  padding-left: 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chg-ops li {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.plan-blocked {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--hair-soft);
+}
+.plan-blocked .lab {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ochre);
+}
+
 .risks {
   border-left: 2px solid color-mix(in srgb, var(--ochre) 45%, transparent);
   padding: 2px 0 2px 14px;
@@ -917,7 +1110,27 @@ code {
 }
 
 /* ── 详情侧栏 ──
-   不加遮罩层：用户要一边看图一边看侧栏，遮罩会把图盖掉。 */
+   遮罩克制到「点得穿」：轻轻压暗背景，给一点「进入了聚焦态」的暗示，
+   但 pointer-events:none —— 图仍看得清、点得到，点另一个条目能直接切换。
+   「点外面关掉」不靠遮罩接点击，靠 document 上的 mousedown + shouldDismiss。 */
+.detail-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  background: rgb(0 0 0 / 0.06);
+  animation: scrim-in 0.18s ease both;
+}
+@media (prefers-color-scheme: dark) {
+  .detail-scrim {
+    background: rgb(0 0 0 / 0.22);
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
 .detail {
   position: fixed;
   top: 0;

@@ -1,7 +1,8 @@
 import { basename, join, relative } from 'node:path'
-import type { Dim, Op, Plan, Result, State } from '../core/types.js'
+import { isExecutable, type Dim, type Op, type Plan, type Result, type State } from '../core/types.js'
 import { DIMS, TOOL_DIRS, AGENTS_DIR } from '../core/constants.js'
 import { isNoise } from '../core/fsx.js'
+import { buildChanges } from '../core/plan.js'
 
 /**
  * `agents link` 专用：只建软链，绝不 move / discard。
@@ -33,6 +34,7 @@ export function buildLinkPlan(state: State): Plan {
     repoRoot: state.repoRoot,
     gitClean: state.gitClean,
     ops,
+    changes: buildChanges(state, ops, {}, []),
     conflicts: [],
     resolved: {},
     skipped: [],
@@ -121,13 +123,35 @@ export function renderPlan(plan: Plan): string {
   const lines: string[] = []
   const rel = (p: string) => relative(plan.repoRoot, p)
 
+  const executable = plan.changes.filter(isExecutable)
+  const blocked = plan.changes.filter((c) => !isExecutable(c))
+
   if (plan.ops.length === 0 && plan.skipped.length > 0) {
     // 不能说「无需变更」—— 是有活要干，但全被未裁决的冲突挡住了。
     lines.push('本次不会做任何变更 —— 全部卡在下面这些未裁决的冲突上。')
   } else if (plan.ops.length === 0) {
     lines.push('无需变更。')
   } else {
-    lines.push('变更计划：')
+    // 先讲「用户的变更」：几项、每项做什么、为什么。原子操作是实现细节，往后放。
+    lines.push(`本次共 ${executable.length} 项变更（${plan.ops.length} 个原子操作）：`)
+    for (const c of executable) {
+      lines.push(`  ${c.destructive ? '⚠️ ' : '✅ '}${c.title}`)
+      lines.push(`      ${c.before}  →  ${c.after}`)
+      lines.push(`      ${c.reason}`)
+    }
+  }
+
+  // 挡住的维度：真实存在、但这次不动。绝不混进变更数里。
+  if (blocked.length > 0) {
+    lines.push('')
+    lines.push('这些这次不动（不计入变更）：')
+    for (const c of blocked) lines.push(`  ${c.title}  —— ${c.blockedReason}`)
+  }
+
+  // 技术细节：想核对到每一步文件系统动作的人看这里。
+  if (plan.ops.length > 0) {
+    lines.push('')
+    lines.push('技术细节（原子操作）：')
     for (const op of plan.ops) {
       switch (op.t) {
         case 'mkdir':
@@ -185,13 +209,13 @@ export function renderPlan(plan: Plan): string {
   return lines.join('\n')
 }
 
-export function renderResult(r: Result): string {
+export function renderResult(r: Result, meaningful?: number): string {
   if (!r.ok) return `失败：${r.error}`
   if (r.applied.length === 0) return '无需变更。'
-  return [
-    `完成，执行了 ${r.applied.length} 个操作。`,
-    '',
-    `备份：  ${r.atticDir}/backup/`,
-    `撤销：  sh ${r.undoScript}`,
-  ].join('\n')
+  // 成功也先报「几项变更」。原子操作数是技术旁注 —— 用户关心的是他那几件事成了没。
+  const head =
+    meaningful != null
+      ? `完成，收敛了 ${meaningful} 项变更（${r.applied.length} 个原子操作）。`
+      : `完成，执行了 ${r.applied.length} 个操作。`
+  return [head, '', `备份：  ${r.atticDir}/backup/`, `撤销：  sh ${r.undoScript}`].join('\n')
 }

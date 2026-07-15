@@ -6,9 +6,10 @@ import { execSync } from 'node:child_process'
 
 /**
  * layout 的 key 是相对路径。
- * 值是 string -> 写文件；{ symlink: target } -> 建软链（相对路径）。
+ * 值是 string -> 写文件；{ symlink: target } -> 建软链（相对路径）；
+ * { dir: true } -> 建一个空目录（key 末尾的 / 可有可无）。
  */
-export type Layout = Record<string, string | { symlink: string }>
+export type Layout = Record<string, string | { symlink: string } | { dir: true }>
 
 export async function mkRepo(layout: Layout): Promise<string> {
   // macOS 的 /var/folders 是 /private/var/folders 的软链。不 realpath 的话，
@@ -16,6 +17,11 @@ export async function mkRepo(layout: Layout): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dot-agents-test-')))
   for (const [rel, val] of Object.entries(layout)) {
     const abs = join(root, rel)
+    if (typeof val === 'object' && 'dir' in val) {
+      // 空目录：rmdir 那条路径要靠它才走得到（空 real 维度、空壳）。
+      await mkdir(abs, { recursive: true })
+      continue
+    }
     await mkdir(dirname(abs), { recursive: true })
     if (typeof val === 'string') {
       await writeFile(abs, val, 'utf8')

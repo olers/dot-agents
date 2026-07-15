@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { Dim, Plan, Resolutions, Result } from '../core/types.js'
+import { isExecutable, type Dim, type Plan, type Resolutions, type Result } from '../core/types.js'
 import { doApply, getPlan, getState, type StateBundle } from './api.js'
 import { buildGraph, readOnlyPlan, refId, type EntryRef } from './graph.js'
 import { COLLAPSE_MS, CONVERGE_MS, type Phase } from './phase.js'
 import { DistBoxView, NowBoxView, SrcBoxView } from './components/Boxes.js'
 import { Wires } from './components/Wires.js'
 import { ConflictPicker } from './components/ConflictPicker.js'
+import { PlanSummary, ctaLabel } from './components/PlanSummary.js'
 import { ResultView } from './components/ResultView.js'
 import { Detail } from './components/Detail.js'
 
@@ -168,6 +169,8 @@ export function App() {
     )
 
   const busy = phase === 'collapsing' || phase === 'linking'
+  // 主视图数的是「用户的变更」，不是原子操作。见交接文档：3 个 op 可能只是 2 项变更。
+  const changeCount = plan.changes.filter(isExecutable).length
 
   return (
     <Shell path={bundle.repo.repoRoot} tab={tab} setTab={changeTab}>
@@ -198,8 +201,8 @@ export function App() {
 
         <div className="seam">
           <div className="count">
-            <div className="count-n">{plan.ops.length}</div>
-            <div className="count-l">个操作</div>
+            <div className="count-n">{changeCount}</div>
+            <div className="count-l">项变更</div>
           </div>
         </div>
 
@@ -244,9 +247,12 @@ export function App() {
       )}
 
       {result ? (
-        <ResultView result={result} linkCount={graph.linkCount} />
+        <ResultView result={result} linkCount={graph.linkCount} changeCount={changeCount} />
       ) : (
         <>
+          {/* 计划回执：这次到底改什么、为什么、改完什么样、动没动到你的东西。 */}
+          <PlanSummary changes={plan.changes} repoRoot={bundle.repo.repoRoot} />
+
           {plan.conflicts.length > 0 && (
             <ConflictPicker plan={plan} resolutions={resolutions} onPick={pick} />
           )}
@@ -267,7 +273,7 @@ export function App() {
               备份写进 .agents/.attic/，同时生成 undo.sh
             </span>
             <button className="go" disabled={busy || plan.ops.length === 0} onClick={converge}>
-              {busy ? '收敛中…' : '收敛'}
+              {busy ? '收敛中…' : ctaLabel(changeCount)}
             </button>
           </div>
         </>

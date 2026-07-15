@@ -9,6 +9,27 @@ export function defaultFile(files: string[]): string | undefined {
 }
 
 /**
+ * 一次点击该不该关掉侧栏。纯判定，抽出来是为了不靠 jsdom 就能验行为。
+ *
+ * 三条规则，缺一不可：
+ *   - 点在抽屉里面           -> 不关（X 按钮、文件切换、正文选中都在里面）
+ *   - 点在任何交互控件上     -> 不关：那次点击自己有事要做
+ *                              （点另一个条目 = 切换内容，绝不能先关再开）
+ *   - 其余（图的空白、标题）-> 关
+ *
+ * 背景遮罩是「点得穿」的（pointer-events:none），所以这些点击真的落到图上、
+ * 由这个判定接管，而不是被遮罩吞掉 —— 图始终可点、可切换条目。
+ */
+export function shouldDismiss(target: EventTarget | null, drawer: Element | null): boolean {
+  if (!(target instanceof Element)) return false
+  if (drawer && drawer.contains(target)) return false
+  if (target.closest('button, [role="button"], a, input, label, select, textarea, summary')) {
+    return false
+  }
+  return true
+}
+
+/**
  * 一个文件的绝对路径。
  *
  * 单文件条目（commands / agents / hooks）的 path 本身就是那个文件，
@@ -34,7 +55,11 @@ interface ViewProps {
  */
 export function DetailView({ entry, file, peek, loading, err, onPick, onClose }: ViewProps) {
   return (
-    <aside className="detail" role="dialog" aria-label={`${entry.key} 详情`}>
+    <>
+      {/* 克制的背景：轻轻压暗，点得穿（pointer-events:none）。图仍看得清、点得到。
+          真正「点外面关掉」由 document 上的 mousedown + shouldDismiss 接管。 */}
+      <div className="detail-scrim" aria-hidden="true" />
+      <aside className="detail" role="dialog" aria-modal="false" aria-label={`${entry.key} 详情`}>
       <div className="detail-h">
         <div className="detail-id">
           <div className="detail-t">{entry.name}</div>
@@ -86,7 +111,8 @@ export function DetailView({ entry, file, peek, loading, err, onPick, onClose }:
 
       {/* 截断了不说，用户会以为他看到的就是全部。 */}
       {peek?.truncated && <div className="detail-cut">已截断，仅显示前 256KB</div>}
-    </aside>
+      </aside>
+    </>
   )
 }
 
@@ -135,6 +161,16 @@ export function Detail({ entry, onClose }: { entry: EntryRef; onClose: () => voi
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // 点外面关掉。用 mousedown（在 focus 变更之前触发），落点交给 shouldDismiss 判。
+  // 抽屉整个是 position:fixed，用类名取它即可 —— 同一时刻只有一个。
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (shouldDismiss(e.target, document.querySelector('.detail'))) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
   }, [onClose])
 
   return (

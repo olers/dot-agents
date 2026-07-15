@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { findRepoRoot, scan } from '../core/scan.js'
 import { buildPlan } from '../core/plan.js'
 import { applyPlan } from '../core/apply.js'
+import { isExecutable } from '../core/types.js'
 import { buildLinkPlan, renderState, renderPlan, renderResult, conflictCells } from './render.js'
 import { startServer } from '../server/index.js'
 
@@ -50,7 +51,8 @@ program
       return
     }
     console.log('')
-    console.log(renderResult(await applyPlan(plan, { force: opts.force })))
+    const r = await applyPlan(plan, { force: opts.force })
+    console.log(renderResult(r, plan.changes.filter(isExecutable).length))
   })
 
 program
@@ -63,7 +65,8 @@ program
     if (plan.ops.length === 0) return
     console.log('')
     // link 只创建软链，不销毁任何东西 -> 不需要「git 干净」这道闸
-    console.log(renderResult(await applyPlan(plan, { force: true })))
+    const r = await applyPlan(plan, { force: true })
+    console.log(renderResult(r, plan.changes.filter(isExecutable).length))
   })
 
 function parsePort(v: string): number {
