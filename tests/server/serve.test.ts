@@ -1,33 +1,17 @@
-import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { request } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
-import { readFile, writeFile, rm, access } from 'node:fs/promises'
-
+import { readFile } from 'node:fs/promises'
 import { startServer } from '../../src/server/index.js'
 import { mkRepo, cleanupRepo, type Layout } from '../helpers/mkrepo.js'
+
+// 静态资源 200 分支所需的 src/web/index.html 由 vitest globalSetup 全程提供（tests/setup/web-fixture.ts）。
 
 const roots: string[] = []
 const closers: Array<() => void | Promise<void>> = []
 afterEach(async () => {
   await Promise.all(closers.splice(0).map((c) => c()))
   await Promise.all(roots.splice(0).map(cleanupRepo))
-})
-
-// vitest 跑源码：server 的 WEB_ROOT 解析到 src/web，那里没有 index.html，
-// 命中静态资源 200 分支（CSP 头就挂在这条分支上）就需要一个真文件。
-// 造一个临时的 src/web/index.html 让静态分支可达，跑完删掉；已存在则不碰。
-const WEB_INDEX = new URL('../../src/web/index.html', import.meta.url)
-let createdWebIndex = false
-beforeAll(async () => {
-  try {
-    await access(WEB_INDEX)
-  } catch {
-    await writeFile(WEB_INDEX, '<html><head></head><body>test</body></html>', 'utf8')
-    createdWebIndex = true
-  }
-})
-afterAll(async () => {
-  if (createdWebIndex) await rm(WEB_INDEX, { force: true })
 })
 
 async function boot(layout: Layout, opts: Parameters<typeof startServer>[1] = {}) {

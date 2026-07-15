@@ -6,6 +6,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.{ts,tsx}'],
     testTimeout: 20000,
+    // 全程一次：保证 src/web/index.html 存在，让 server 静态资源 200 分支（CSP 头）可测。
+    globalSetup: ['tests/setup/web-fixture.ts'],
   },
   esbuild: { jsx: 'automatic' },
 })

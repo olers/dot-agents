@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { realpath } from 'node:fs/promises'
+import { execSync } from 'node:child_process'
 
 /**
  * layout 的 key 是相对路径。
@@ -22,6 +23,13 @@ export async function mkRepo(layout: Layout): Promise<string> {
       await symlink(val.symlink, abs)
     }
   }
+  return root
+}
+
+/** mkRepo + git init：给需要过 findRepoRoot 的 CLI/e2e 测试用 */
+export async function mkGitRepo(layout: Layout): Promise<string> {
+  const root = await mkRepo(layout)
+  execSync('git init -q', { cwd: root })
   return root
 }
 
