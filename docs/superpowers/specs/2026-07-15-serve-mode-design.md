@@ -27,10 +27,11 @@ dot-agents serve [--port <n>] [--repo <path>] [--allow-embed <origin>]
 
 - `--port`：监听端口，缺省仍随机（listen 0）。占用即报错退出（exit 1），不自动换端口——换不换是宿主的事。
 - `--repo`：扫描目标仓库根，缺省 = cwd 的 git root。非 git 仓库照旧报错退出。
-- `--allow-embed <origin>`：响应头加 `Content-Security-Policy: frame-ancestors 'self' <origin>`。
+- `--allow-embed <origins>`：响应头加 `Content-Security-Policy: frame-ancestors 'self' <origins>`。
+  值**原样**拼进头部，可含空格分隔的多个 origin（如 `"http://localhost:5273 http://127.0.0.1:5273"`）。
   缺省不发该头（保持现状，本地场景可嵌）。给了才收紧+放行指定 origin。
-- 不 open 浏览器；前台运行，stdout 首行打一行 JSON：`{"app":"dot-agents","url":...,"port":...}`（宿主可解析，人也能读）。
-- SIGINT/SIGTERM 优雅退出。
+- 不 open 浏览器；前台运行，stdout 首行打一行 JSON：`{"app":"dot-agents","url":...,"port":...}`（宿主可解析，人也能读）；首行之前不得有任何 stdout 输出。
+- SIGINT/SIGTERM 优雅退出：等 server close 完成后 exit 0（`close` 返回 Promise，可等待）。
 
 ## 4. 安全加固（serve 与默认模式共用，都在 startServer 里）
 
