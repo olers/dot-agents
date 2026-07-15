@@ -37,8 +37,14 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
+export interface StartServerOptions {
+  port?: number
+  allowEmbed?: string
+}
+
 export async function startServer(
   repoRoot: string,
+  opts: StartServerOptions = {},
 ): Promise<{ url: string; token: string; port: number; close: () => Promise<void> }> {
   const token = randomBytes(24).toString('hex')
   // dist/server/ -> 包根。healthz 要报版本，宿主靠它判断兼容性。
@@ -151,11 +157,20 @@ export async function startServer(
           ),
       )
     }
-    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
+    const headers: Record<string, string> = {
+      'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+    }
+    if (opts.allowEmbed) {
+      headers['content-security-policy'] = `frame-ancestors 'self' ${opts.allowEmbed}`
+    }
+    res.writeHead(200, headers)
     res.end(content)
   })
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(opts.port ?? 0, '127.0.0.1', () => resolve())
+  })
   const addr = server.address()
   const port = typeof addr === 'object' && addr ? addr.port : 0
   boundPort = port
