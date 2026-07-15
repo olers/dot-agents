@@ -14,10 +14,11 @@
   "bugs": { "url": "https://github.com/olers/dot-agents/issues" },
   "type": "module",
   "bin": { "dot-agents": "./dist/cli/index.js" },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=18" },
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json && vite build",
+    "prepare": "npm run build",
     "test": "vitest run",
     "dev": "tsx src/cli/index.ts"
   },
