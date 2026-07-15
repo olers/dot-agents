@@ -17,11 +17,11 @@ Edit once; every AI tool sees the change.
 - **Conflict-safe.** Same name but different content? It stops and asks. It never picks for you and never auto-merges.
 - **Relative symlinks.** Links survive being moved to another machine.
 - **Full backups.** Everything moved or deleted is backed up with a generated `undo.sh`. Failures roll back atomically.
-- **No daemon.** No resident process, no fixed port. The server exits when it's done.
+- **No daemon by default.** The default mode runs once and exits — no daemon, no fixed port; use the explicit `serve` host mode when you need it resident.
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 18
 
 ## Usage
 
@@ -35,6 +35,19 @@ npx @linemagic/dot-agents link      # Idempotent "install": add missing symlinks
 The default command **does not modify files directly.** It scans the repo, computes a change plan, and lays out in the browser what will change, the risks, and the benefits. The backend acts only after you confirm.
 
 Hover any entry in the graph to read its frontmatter description; open it to see the file list and the content of each file — so before resolving a conflict, you can see exactly how the two copies of `foo` differ.
+
+### Host mode (serve)
+
+The default command is "run once, use once": random port, auto-opens the browser, exits on Ctrl-C — still the only interactive usage.
+`serve` is an explicit opt-in mode for an **external host** (such as a portal-style tool) to manage:
+
+    dot-agents serve --port 18852 --repo /path/to/repo --allow-embed "http://localhost:5273"
+
+- Stays resident in the foreground, never opens a browser; its lifecycle belongs to the host (graceful exit on SIGINT/SIGTERM).
+- The first stdout line is a single JSON line `{"app":"dot-agents","url":"...","port":...}`; nothing else is written to stdout afterward.
+- `--port` exits 1 if the port is taken — it never switches ports; `--repo` defaults to the git root of the current directory.
+- `--allow-embed` is written verbatim into the CSP `frame-ancestors` (space-separate multiple origins); no CSP header when omitted.
+- Security: binds 127.0.0.1 only; Host-header allowlist (blocks DNS rebinding); `/api/*` still requires the page-injected token; the only token-free endpoint is `GET /healthz` (returns app/version/repoRoot, for the host to identify it).
 
 ## Result layout
 
@@ -63,7 +76,7 @@ Duplicate copies with **identical content** are not conflicts — they're dedupl
 
 - **No format conversion.** It only handles same-name directories with matching formats. `rules/` formats are mutually incompatible (`.cursor` uses `.mdc` with frontmatter globs; `.claude` has no `rules/` concept at all), so they're listed under "tool-specific" — visible but untouched.
 - **No changes to global directories.** `~/.claude` and the like are shown read-only.
-- **No daemon.** No resident process, no fixed port. The server exits when it's done.
+- **Not resident by default.** The default mode has no daemon and no fixed port and exits when done; residency happens only in the explicit `serve` host mode.
 
 ## Safety net
 

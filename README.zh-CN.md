@@ -17,11 +17,11 @@
 - **冲突安全。** 同名但内容不同？停下来问你。绝不替你选，也绝不自动合并。
 - **相对软链。** 换台机器照样有效。
 - **完整备份。** 所有被移动或删除的内容都备份，并生成 `undo.sh`。中途失败整体回滚。
-- **无常驻进程。** 没有 daemon，没有固定端口。server 跑完即退。
+- **默认不常驻。** 默认模式随用随退：没有 daemon、没有固定端口；需要长驻时用显式的 serve 宿主模式。
 
 ## 环境要求
 
-- Node.js >= 20
+- Node.js >= 18
 
 ## 用法
 
@@ -35,6 +35,20 @@ npx @linemagic/dot-agents link      # 幂等的「安装」：只补软链，绝
 默认命令**不直接改文件**。它扫描仓库、算出变更计划，在浏览器里把「会变成什么样、有什么风险、有什么收益」摆给你看，你确认之后后端才动手。
 
 图上每个条目 hover 能看到它的 frontmatter 描述，点开能看到它的文件清单和每个文件的内容 —— 裁决冲突之前，你可以先看清这两份 `foo` 到底哪儿不一样。
+
+### 宿主模式（serve）
+
+默认命令是「开一次用一次」：随机端口、自动开浏览器、Ctrl-C 即退，这仍是唯一的交互式用法。
+`serve` 是给**外部宿主**（如门户类工具）托管用的显式 opt-in 模式：
+
+    dot-agents serve --port 18852 --repo /path/to/repo --allow-embed "http://localhost:5273"
+
+- 长驻前台、不开浏览器；生命周期归宿主管（SIGINT/SIGTERM 优雅退出）。
+- stdout 首行输出一行 JSON `{"app":"dot-agents","url":"...","port":...}`，之后不再写 stdout。
+- `--port` 被占直接 exit 1，绝不换端口；`--repo` 缺省取当前目录的 git root。
+- `--allow-embed` 的值原样写进 CSP `frame-ancestors`（可空格分隔多个 origin）；缺省不发 CSP 头。
+- 安全：只绑 127.0.0.1；Host 头白名单（防 DNS rebinding）；`/api/*` 仍要页面注入的 token；
+  免 token 的只有 `GET /healthz`（返回 app/version/repoRoot，给宿主认人）。
 
 ## 达成态
 
@@ -62,8 +76,7 @@ npx @linemagic/dot-agents link      # 幂等的「安装」：只补软链，绝
 ## 它不做什么
 
 - **不做格式转换。** 只处理同名且格式一致的目录。`rules/` 各家格式不兼容（`.cursor` 用 `.mdc` 且带 frontmatter globs，`.claude` 没有 `rules/` 概念），一律列进「工具专属」，看得见但不碰。
-- **不改全局目录。** `~/.claude` 等只读展示。
-- **不常驻。** 没有 daemon，没有固定端口。server 跑完即退。
+- **默认不常驻。** 默认模式没有 daemon、没有固定端口，跑完即退；长驻只发生在显式的 serve 宿主模式下。
 
 ## 安全网
 
