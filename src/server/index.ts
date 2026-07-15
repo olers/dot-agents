@@ -39,11 +39,33 @@ function json(res: ServerResponse, code: number, body: unknown): void {
 
 export async function startServer(
   repoRoot: string,
-): Promise<{ url: string; token: string; port: number; close: () => void }> {
+): Promise<{ url: string; token: string; port: number; close: () => Promise<void> }> {
   const token = randomBytes(24).toString('hex')
+  // dist/server/ -> 包根。healthz 要报版本，宿主靠它判断兼容性。
+  const pkg = JSON.parse(
+    await readFile(join(HERE, '../../package.json'), 'utf8'),
+  ) as { version: string }
+  let boundPort = 0
 
   const server = createServer(async (req, res) => {
+    // Host 白名单：rebinding 页面的 Host 是攻击者域名。403 在一切路由之前。
+    const host = req.headers.host ?? ''
+    if (
+      host !== `127.0.0.1:${boundPort}` &&
+      host !== `localhost:${boundPort}` &&
+      host !== `[::1]:${boundPort}`
+    ) {
+      res.writeHead(403)
+      res.end('forbidden')
+      return
+    }
+
     const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+
+    if (path === '/healthz' && req.method === 'GET') {
+      json(res, 200, { app: 'dot-agents', version: pkg.version, repoRoot })
+      return
+    }
 
     // ── API：一律要 token ──
     if (path.startsWith('/api/')) {
@@ -136,11 +158,15 @@ export async function startServer(
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const addr = server.address()
   const port = typeof addr === 'object' && addr ? addr.port : 0
+  boundPort = port
 
   return {
     url: `http://127.0.0.1:${port}`,
     token,
     port,
-    close: () => server.close(),
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((e) => (e ? reject(e) : resolve())),
+      ),
   }
 }

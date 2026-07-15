@@ -73,8 +73,10 @@ program.action(async () => {
   console.log('在浏览器里审阅计划并确认。按 Ctrl-C 退出。')
   await open(url)
   process.on('SIGINT', () => {
-    close()
-    process.exit(0)
+    close().then(
+      () => process.exit(0),
+      () => process.exit(1), // 关不干净不装没事
+    )
   })
 })
 
