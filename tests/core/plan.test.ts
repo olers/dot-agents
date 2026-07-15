@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { scan } from '../../src/core/scan.js'
 import { buildPlan } from '../../src/core/plan.js'
 import { mkRepo, cleanupRepo, type Layout } from '../helpers/mkrepo.js'
-import type { Op, Resolutions } from '../../src/core/types.js'
+import { isExecutable, type Op, type Plan, type Resolutions } from '../../src/core/types.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -210,5 +210,122 @@ describe('buildPlan', () => {
       '.claude': { symlink: 'elsewhere' },
     })
     expect(plan.ops).toEqual([])
+  })
+})
+
+// changes 是 ops 的「用户意图」归组。主视图数它、Apply 文案用它。
+// WHY: 3 个原子操作 ≠ 3 项变更。这一层专门保证「用户看到的数」讲的是用户的事，不是实现步数。
+describe('buildPlan.changes —— 语义变更归组', () => {
+  const meaningful = (plan: Plan) => plan.changes.filter(isExecutable)
+
+  it('absent 维度 -> 一项 link 变更，非破坏性，只含那条 symlink', async () => {
+    const { plan } = await planFor({
+      '.agents/skills/foo/SKILL.md': 'x',
+      '.claude/settings.json': '{}',
+    })
+    const m = meaningful(plan)
+    expect(m).toHaveLength(1)
+    expect(m[0].kind).toBe('link')
+    expect(m[0].key).toBe('.claude/skills')
+    expect(m[0].destructive).toBe(false)
+    expect(m[0].target).toBe('../.agents/skills')
+    expect(m[0].ops.map((o) => o.t)).toEqual(['symlink'])
+  })
+
+  // WHY: 空目录换软链是 rmdir + symlink 两步，但用户只做了「接一个维度」一件事。
+  it('空 real 目录 -> 一项 clear 变更（不是两项），非破坏性', async () => {
+    const { plan } = await planFor({
+      '.agents/hooks/h/HOOK.md': 'x',
+      '.codex/hooks': { dir: true },
+    })
+    const m = meaningful(plan)
+    expect(m).toHaveLength(1)
+    expect(m[0].kind).toBe('clear')
+    expect(m[0].key).toBe('.codex/hooks')
+    expect(m[0].destructive).toBe(false)
+    expect(m[0].ops.map((o) => o.t).sort()).toEqual(['rmdir', 'symlink'])
+  })
+
+  // WHY: 交接文档的验收 fixture。真相是「2 项变更 / 3 个技术步骤」。
+  it('验收 fixture：2 项变更、3 个原子操作，且每个操作都有归属', async () => {
+    const { plan } = await planFor({
+      '.agents/skills/s/SKILL.md': 'x',
+      '.agents/hooks/h/HOOK.md': 'y',
+      '.codex/hooks': { dir: true }, // 空 real 目录
+      '.codex/settings.json': '{}', // 让 .codex 成为工具目录；.codex/skills 缺席
+    })
+    expect(plan.ops).toHaveLength(3)
+    const m = meaningful(plan)
+    expect(m).toHaveLength(2)
+    expect(m.map((c) => c.key).sort()).toEqual(['.codex/hooks', '.codex/skills'])
+    expect(m.find((c) => c.key === '.codex/skills')!.kind).toBe('link')
+    expect(m.find((c) => c.key === '.codex/hooks')!.kind).toBe('clear')
+    // 技术细节展开不能漏 op：3 个操作全部归属到某项变更
+    expect(m.flatMap((c) => c.ops)).toHaveLength(3)
+  })
+
+  // WHY: 未裁决的冲突「什么都没干成」。把它算进变更数 = 骗用户以为有 N 项会执行。
+  it('未裁决冲突 -> blocked 变更，不计入可执行变更', async () => {
+    const { plan } = await planFor({
+      '.claude/skills/foo/SKILL.md': 'A',
+      '.codebuddy/skills/foo/SKILL.md': 'B',
+    })
+    expect(meaningful(plan)).toHaveLength(0)
+    const blocked = plan.changes.filter((c) => c.kind === 'blocked')
+    expect(blocked.length).toBeGreaterThan(0)
+    expect(blocked[0].blockedReason).toBeTruthy()
+  })
+
+  // WHY: 裁决后必须讲清「谁赢、谁被备份删掉」，否则用户不知道自己刚才删了什么。
+  it('冲突裁决 -> 胜出方说「胜出」，落败方标破坏性且说「备份」', async () => {
+    const { plan } = await planFor(
+      {
+        '.claude/skills/foo/SKILL.md': 'A',
+        '.codebuddy/skills/foo/SKILL.md': 'B',
+      },
+      { 'skills/foo': '.codebuddy' },
+    )
+    const m = meaningful(plan)
+    const winner = m.find((c) => c.key === '.codebuddy/skills')!
+    const loser = m.find((c) => c.key === '.claude/skills')!
+    expect(winner.reason).toContain('胜出')
+    expect(loser.destructive).toBe(true)
+    expect(loser.reason).toContain('备份')
+  })
+
+  // WHY: drifted 的软链指向别处。不说「旧目标被换掉」，用户以为它本来就接好了。
+  it('drifted -> relink 变更，说明旧目标被换掉', async () => {
+    const { plan } = await planFor({
+      '.agents/skills/foo/SKILL.md': 'x',
+      'elsewhere/keep.md': 'y',
+      '.claude/skills': { symlink: '../elsewhere' },
+    })
+    const m = meaningful(plan)
+    expect(m).toHaveLength(1)
+    expect(m[0].kind).toBe('relink')
+    expect(m[0].reason).toContain('elsewhere')
+    expect(m[0].ops.map((o) => o.t).sort()).toEqual(['symlink', 'unlink'])
+  })
+
+  it('已经统一 -> 没有任何变更', async () => {
+    const { plan } = await planFor({
+      '.agents/skills/foo/SKILL.md': 'x',
+      '.claude/skills': { symlink: '../.agents/skills' },
+    })
+    expect(plan.changes).toEqual([])
+  })
+
+  // WHY: 技术细节视图要 100% 覆盖 ops。任何一个 op 没归属 / 归属两次，展开来看就是在撒谎。
+  it('每个原子操作恰好归属到一项变更（含 mkdir 和 .agents 替换 discard）', async () => {
+    const { plan } = await planFor(
+      {
+        '.agents/skills/foo/SKILL.md': 'ORIG',
+        '.claude/skills/foo/SKILL.md': 'NEW',
+      },
+      { 'skills/foo': '.claude' }, // 工具赢：先 discard .agents 旧版，再 move 进来
+    )
+    const flat = plan.changes.flatMap((c) => c.ops)
+    expect(flat).toHaveLength(plan.ops.length)
+    expect(new Set(flat).size).toBe(plan.ops.length)
   })
 })

@@ -1,15 +1,19 @@
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import type {
   BlockedDim,
+  Change,
+  ChangeKind,
   Conflict,
   ConflictCandidate,
   Dim,
+  EntryState,
   Op,
   Plan,
   Resolutions,
   State,
 } from './types.js'
 import { DIMS, TOOL_DIRS, AGENTS_DIR } from './constants.js'
+import { isNoise } from './fsx.js'
 
 const RANK: Record<Op['t'], number> = {
   mkdir: 0,
@@ -80,6 +84,187 @@ function sourcePriority(tool: string): number {
   if (tool === AGENTS_DIR) return -1
   const i = (TOOL_DIRS as readonly string[]).indexOf(tool)
   return i < 0 ? 999 : i
+}
+
+/** 现状一句话，给 Change.before 用。 */
+function describeBefore(st: EntryState | undefined): string {
+  if (!st) return '未接入'
+  switch (st.kind) {
+    case 'absent':
+      return '未接入（没有这个维度目录）'
+    case 'linked':
+      return '已经是软链'
+    case 'drifted':
+      return `软链指向别处：${st.actualTarget}`
+    case 'real': {
+      const n = st.entries.length
+      if (n === 0) {
+        return st.residue.some((r) => r.kind === 'noise') ? '空目录（只有系统垃圾文件）' : '空目录'
+      }
+      return `本地有 ${n} 个条目`
+    }
+  }
+}
+
+/**
+ * 把 plan.ops 归组成用户意图层面的 Change。见 types.ts 上 Change 的注释。
+ *
+ * 归属规则（每个 op 恰好落到一项变更里，技术细节视图才不重不漏）：
+ *   symlink / rmdir / unlink  路径在 `${tool}/${dim}`      -> 该 (tool, dim)
+ *   move                       from 在 `${tool}/${dim}/…`  -> 源 (tool, dim)
+ *   discard                    在 `${tool}/${dim}/…`       -> 该 (tool, dim)
+ *   mkdir `.agents/<dim>`、discard `.agents/<dim>/<name>`（冲突替换旧版）
+ *     —— 这两类作用在唯一源上，归到「把内容搬进对应位置」的那项变更（胜出/收录方）。
+ */
+export function buildChanges(
+  state: State,
+  ops: Op[],
+  resolved: Record<string, string>,
+  blockedDims: BlockedDim[],
+): Change[] {
+  const { repoRoot } = state
+  const rel = (p: string) => (p.startsWith(repoRoot + '/') ? p.slice(repoRoot.length + 1) : p)
+  const segs = (p: string) => rel(p).split('/')
+  const dimName = (p: string) => {
+    const s = segs(p)
+    return `${s[1]}/${s[2]}` // `${dim}/${name}`
+  }
+  const resolvedKeys = new Set(Object.keys(resolved)) // 只有内容不同的冲突才在这里
+
+  const byKey = new Map<string, Op[]>()
+  const push = (k: string, op: Op) => (byKey.get(k) ?? byKey.set(k, []).get(k)!).push(op)
+  const orphans: Op[] = [] // 作用在 .agents 上、待 fold 的 op
+
+  for (const op of ops) {
+    if (op.t === 'move') {
+      const [tool, dim] = segs(op.from)
+      push(`${tool}/${dim}`, op)
+    } else if (op.t === 'mkdir') {
+      orphans.push(op)
+    } else {
+      const [tool, dim] = segs(op.path)
+      if (tool === AGENTS_DIR) orphans.push(op)
+      else push(`${tool}/${dim}`, op)
+    }
+  }
+
+  // fold：找到把内容搬进对应 .agents 位置的那项变更。
+  const hostOfMoveInto = (dim: string, name?: string): string | null => {
+    for (const [k, list] of byKey) {
+      for (const op of list) {
+        if (op.t !== 'move') continue
+        const [d0, d1, d2] = segs(op.to)
+        if (d0 === AGENTS_DIR && d1 === dim && (!name || d2 === name)) return k
+      }
+    }
+    return null
+  }
+  for (const op of orphans) {
+    let host: string | null = null
+    if (op.t === 'mkdir') host = hostOfMoveInto(segs(op.path)[1])
+    else if (op.t === 'discard') host = hostOfMoveInto(segs(op.path)[1], segs(op.path)[2])
+    // host 恒非空：mkdir / 替换 discard 都由某个 move 触发。万一为空，宁可漏在技术细节里也不乱塞。
+    if (host) push(host, op)
+  }
+
+  const blockedByKey = new Map(blockedDims.map((b) => [`${b.tool}/${b.dim}`, b]))
+  const keys = [...new Set([...byKey.keys(), ...blockedByKey.keys()])].sort()
+
+  const changes: Change[] = []
+  for (const key of keys) {
+    const [tool, dimStr] = key.split('/')
+    const dim = dimStr as Dim
+    const kops = byKey.get(key) ?? []
+    const st = state.tools[tool]?.dims[dim]
+    const title = `${tool} / ${dim}`
+    const before = describeBefore(st)
+
+    const blk = blockedByKey.get(key)
+    if (blk) {
+      changes.push({
+        key,
+        tool,
+        dim,
+        title,
+        kind: 'blocked',
+        before,
+        after: '保持原样，不接软链',
+        reason: blk.reason,
+        blockedReason: blk.short,
+        destructive: false,
+        ops: kops,
+      })
+      continue
+    }
+
+    const has = (t: Op['t']) => kops.some((o) => o.t === t)
+    const target = (kops.find((o) => o.t === 'symlink') as Extract<Op, { t: 'symlink' }>)?.target
+
+    // 破坏性 = 有「内容不同」的删除：冲突落败方、或被替换的 .agents 旧版。
+    // 去重删的是完全相同的副本（不在 resolvedKeys 里），不算破坏。
+    const destructive = kops.some((o) => o.t === 'discard' && resolvedKeys.has(dimName(o.path)))
+    // 本工具自己这份在冲突里落败（own-tool 的 discard，且 key 是内容不同的冲突）
+    const hasLoss = kops.some(
+      (o) => o.t === 'discard' && segs(o.path)[0] === tool && resolvedKeys.has(dimName(o.path)),
+    )
+    // 本工具这份胜出（move 进唯一源，且赢家就是它）
+    const hasWin = kops.some(
+      (o) => o.t === 'move' && resolved[dimName(o.from)] === tool,
+    )
+    // 内容完全相同的去重删除（own-tool、非系统垃圾、非冲突）
+    const hasDedup = kops.some(
+      (o) =>
+        o.t === 'discard' &&
+        segs(o.path)[0] === tool &&
+        !isNoise(basename(o.path)) &&
+        !resolvedKeys.has(dimName(o.path)),
+    )
+
+    let kind: ChangeKind
+    if (has('unlink')) kind = 'relink'
+    else if (has('move') || hasLoss || hasDedup) kind = 'adopt'
+    else if (has('rmdir')) kind = 'clear'
+    else kind = 'link'
+
+    let reason: string
+    if (kind === 'link') {
+      reason = '接上唯一源；以后在任意工具目录里改动，都会写回同一处、所有工具同时生效。'
+    } else if (kind === 'relink') {
+      const old = st?.kind === 'drifted' ? st.actualTarget : '别处'
+      reason = `旧软链指向 ${old}，把它换成指向唯一源；原目标不受影响。`
+    } else if (kind === 'clear') {
+      reason =
+        st?.kind === 'real' && st.residue.some((r) => r.kind === 'noise')
+          ? '目录里只有系统垃圾文件（如 .DS_Store），备份后清掉，再换成软链；没有你的内容被删除。'
+          : '目录是空的，先删掉这个空壳才能换成软链；没有你的内容被删除。'
+    } else if (hasLoss) {
+      reason = '同名条目内容不同，这份在你的裁决里落败：备份到 .attic 后删除，目录换成软链、指向胜出的那份。'
+    } else if (hasWin) {
+      reason = '这份内容在同名冲突里被你选为胜出，收进唯一源成为唯一版本；目录随后换成软链。'
+    } else if (has('move')) {
+      reason = hasDedup
+        ? '把本地条目收进唯一源，其中与唯一源完全相同的副本备份后去重；目录换成软链。'
+        : '把本地条目收进唯一源，再把目录换成软链；内容没有丢失，只是集中到了一处。'
+    } else {
+      reason = '本地这份与唯一源里的内容完全相同，备份后去重；目录换成软链。'
+    }
+
+    changes.push({
+      key,
+      tool,
+      dim,
+      title,
+      kind,
+      before,
+      after: target ? `软链 → ${target}` : '换成软链',
+      target,
+      reason,
+      destructive,
+      ops: kops,
+    })
+  }
+
+  return changes
 }
 
 export function buildPlan(state: State, resolutions: Resolutions): Plan {
@@ -286,6 +471,7 @@ export function buildPlan(state: State, resolutions: Resolutions): Plan {
     repoRoot,
     gitClean: state.gitClean,
     ops,
+    changes: buildChanges(state, ops, resolved, blockedDims),
     conflicts,
     resolved,
     skipped,

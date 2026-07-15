@@ -116,10 +116,63 @@ export interface BlockedDim {
   reason: string
 }
 
+/**
+ * 一项「用户意图」层面的变更。
+ *
+ * plan.ops 是原子文件操作（mkdir / move / rmdir / symlink…），是给 apply 执行的。
+ * Change 把这些原子操作归组成用户真正关心的单位：「把某个工具的某个维度接到唯一源」。
+ *
+ * 为什么必须在 core 里算：主视图要数「几项变更」、Apply 按钮文案要用这个数。
+ * 一旦让 web 去 ops.length 上编故事，它数出来的是实现步数，不是用户的变更数 ——
+ * 空目录换软链是 rmdir + symlink 两步、却只是「接一个维度」一件事。见交接文档。
+ *
+ * 未来的指令 SSOT（CLAUDE.md → .agents/AGENTS.md）复用同一份契约：dim 置空、用 title 兜。
+ */
+export type ChangeKind =
+  | 'link' // 原本没接（absent）-> 直接建软链
+  | 'relink' // 软链指向别处（drifted）-> 拆旧链、指回唯一源
+  | 'clear' // 空目录（或只有系统垃圾）-> 清掉空壳再建软链；没有用户内容被删
+  | 'adopt' // 目录里有条目 -> 收进唯一源（或去重 / 冲突裁决），再建软链
+  | 'blocked' // 有未裁决冲突 / 有不管理的条目 -> 这次不动，不计入可执行变更
+
+export interface Change {
+  /** 稳定 id：`${tool}/${dim}`。UI 做 key、折叠、和图上高亮的关联都靠它。 */
+  key: string
+  /** 归属的工具目录（'.codex'）。未来指令类可为 'Project' / '~'。 */
+  tool: string
+  /** 受管维度。指令 SSOT 那类没有维度，留空、用 title 兜。 */
+  dim?: Dim
+  /** 一句话标题，如 '.codex / skills'。 */
+  title: string
+  kind: ChangeKind
+  /** 现状一句话。 */
+  before: string
+  /** 执行后一句话。 */
+  after: string
+  /** 软链 / 别名目标（相对路径）。blocked 时没有。 */
+  target?: string
+  /** 为什么需要这项变更，大白话。 */
+  reason: string
+  /** true = 有用户内容被移动或删除（都已备份到 .attic）。空壳 / 系统垃圾不算。 */
+  destructive: boolean
+  /** kind === 'blocked' 时：为什么这次不动它。这类变更不计入可执行变更数。 */
+  blockedReason?: string
+  /** 实现这项变更的原子操作，给「技术细节」展开视图用。 */
+  ops: Op[]
+}
+
+/** 计入「N 项变更」的是可执行的那些 —— 被冲突挡住的（blocked）不算。 */
+export const isExecutable = (c: Change): boolean => c.kind !== 'blocked'
+
 export interface Plan {
   repoRoot: string
   gitClean: boolean
   ops: Op[]
+  /**
+   * ops 的用户意图归组。主视图 / CLI / Apply 文案都读它，绝不再自己数 ops。
+   * apply 仍然只吃 ops —— changes 是同一批 ops 的展示视图，不是另一份事实。
+   */
+  changes: Change[]
   conflicts: Conflict[]
   /** conflictKey -> 赢家 tool。未裁决的不在里面。 */
   resolved: Record<string, string>

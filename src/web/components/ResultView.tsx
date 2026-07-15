@@ -1,6 +1,15 @@
 import type { Result } from '../../core/types.js'
 
-export function ResultView({ result, linkCount }: { result: Result; linkCount: number }) {
+export function ResultView({
+  result,
+  linkCount,
+  changeCount,
+}: {
+  result: Result
+  linkCount: number
+  /** 本次收敛的语义变更数。成功文案先报它，原子操作数退成技术旁注。 */
+  changeCount: number
+}) {
   if (!result.ok) {
     return (
       <div className="result bad">
@@ -23,8 +32,9 @@ export function ResultView({ result, linkCount }: { result: Result; linkCount: n
   return (
     <div className="result">
       <div className="big">
-        已收敛。<em>{result.applied.length} 个操作</em>，一个源，{linkCount} 条软链。
+        已收敛 <em>{changeCount} 项变更</em>，一个源，{linkCount} 条软链。
       </div>
+      <p className="muted">底层执行了 {result.applied.length} 个原子操作。</p>
       <dl>
         <dt>备份</dt>
         <dd>{result.atticDir}/backup/</dd>

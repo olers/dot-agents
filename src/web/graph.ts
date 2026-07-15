@@ -139,6 +139,7 @@ export function readOnlyPlan(repoRoot: string): Plan {
     repoRoot,
     gitClean: true,
     ops: [],
+    changes: [],
     conflicts: [],
     resolved: {},
     skipped: [],
