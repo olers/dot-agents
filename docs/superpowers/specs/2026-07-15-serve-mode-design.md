@@ -22,7 +22,7 @@
 ## 3. CLI 接口（对宿主的中性契约之一）
 
 ```
-dot-agents serve [--port <n>] [--repo <path>] [--allow-embed <origin>]
+dot-agents serve [--port <n>] [--repo <path>] [--allow-embed <origins>]
 ```
 
 - `--port`：监听端口，缺省仍随机（listen 0）。占用即报错退出（exit 1），不自动换端口——换不换是宿主的事。
